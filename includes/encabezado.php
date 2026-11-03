@@ -14,7 +14,7 @@ $menu = array(
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= h($titulo) ?> · NovaTech E-Commerce (Cód. 5465)</title>
+    <title><?= h($titulo) ?> · Ventas por Internet (Cód. 5465)</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -24,10 +24,10 @@ $menu = array(
 <header class="barra">
     <div class="barra-interior">
         <a class="marca" href="index.php">
-            <span class="logo">NT</span>
+            <span class="logo">VI</span>
             <span class="marca-textos">
-                <span class="marca-titulo">NovaTech Store</span>
-                <span class="marca-subtitulo">Ventas por Internet · Cód. 5465</span>
+                <span class="marca-titulo">Ventas por Internet</span>
+                <span class="marca-subtitulo">Proyecto #13 · Cód. 5465</span>
             </span>
         </a>
         <nav>
