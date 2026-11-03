@@ -2,6 +2,6 @@
 .gitignore
 README.md
 .env
-docs
-sql
-scripts
+Informe_BD_proyecto.pdf
+backup-proyecto.sql
+ventas_internet.sql

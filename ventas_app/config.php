@@ -1,9 +1,8 @@
 <?php
 /*
- * Configuración de la conexión a PostgreSQL (Railway / Docker / Local)
- * Proyecto #13: Sistema de Ventas por Internet (Código 5465)
+ * Configuración de la conexión a PostgreSQL (Railway / Docker).
+ * Toma DATABASE_URL del entorno o usa por defecto la instancia de Railway.
  */
-
 $defaultRailwayUrl = 'postgresql://postgres:bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ@ballast.proxy.rlwy.net:49477/railway';
 $envUrl = getenv('DATABASE_URL');
 

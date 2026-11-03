@@ -2,7 +2,7 @@ server {
     listen ${PORT};
     server_name _;
 
-    root /var/www/html;
+    root /var/www/html/ventas_app;
     index index.php index.html;
 
     # Logs redirigidos a stdout/stderr para Railway y contenedores cloud
