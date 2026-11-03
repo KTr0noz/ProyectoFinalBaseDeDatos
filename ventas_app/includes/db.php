@@ -1,15 +1,24 @@
 <?php
-/*
- * Conexión a la base de datos con PDO (extensión pdo_pgsql).
- * Todas las consultas usan sentencias preparadas (?), así los datos que
- * escribe el usuario nunca se mezclan con el SQL (evita inyección SQL).
+/**
+ * ============================================================================
+ * ARCHIVO: ventas_app/includes/db.php
+ * DESCRIPCIÓN:
+ *   Capa de acceso a datos con PDO (extensión pdo_pgsql).
+ *   Todas las consultas utilizan sentencias preparadas (?) para separar el
+ *   código SQL de los datos del usuario y prevenir inyección SQL.
+ * ============================================================================
  */
 
+/**
+ * Obtiene la conexión única (Singleton) a PostgreSQL mediante PDO.
+ */
 function db()
 {
     static $pdo = null;
+
     if ($pdo === null) {
         $dsn = 'pgsql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME;
+
         try {
             $pdo = new PDO($dsn, DB_USER, DB_PASS, array(
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -20,37 +29,47 @@ function db()
             echo '<!doctype html><meta charset="utf-8"><title>Sin conexión</title>';
             echo '<div style="font-family:sans-serif;max-width:640px;margin:60px auto;line-height:1.5">';
             echo '<h2>No se pudo conectar a la base de datos</h2>';
-            echo '<p>Revisa que PostgreSQL esté encendido, que exista la base <b>' . htmlspecialchars(DB_NAME) . '</b> ';
-            echo 'y que hayas ejecutado <code>usuario_app.sql</code>.</p>';
+            echo '<p>Revisa que PostgreSQL esté activo y que la base <b>' . htmlspecialchars(DB_NAME) . '</b> esté disponible.</p>';
             echo '<pre style="background:#f4f4f4;padding:12px;white-space:pre-wrap">' . htmlspecialchars($e->getMessage()) . '</pre>';
             echo '</div>';
             exit;
         }
     }
+
     return $pdo;
 }
 
-/** Ejecuta una consulta preparada y devuelve el PDOStatement. */
+/**
+ * Prepara y ejecuta una consulta SQL con parámetros seguros (?).
+ * Devuelve el objeto PDOStatement resultante.
+ */
 function consulta($sql, $params = array())
 {
-    $st = db()->prepare($sql);
-    $st->execute($params);
-    return $st;
+    $sentencia = db()->prepare($sql);
+    $sentencia->execute($params);
+    return $sentencia;
 }
 
-/** Devuelve todas las filas de una consulta. */
+/**
+ * Ejecuta una consulta y devuelve todas las filas como arreglo asociativo.
+ */
 function filas($sql, $params = array())
 {
     return consulta($sql, $params)->fetchAll();
 }
 
-/** Devuelve una sola fila (o false si no hay). */
+/**
+ * Ejecuta una consulta y devuelve una única fila (o false si no existe).
+ */
 function fila($sql, $params = array())
 {
     return consulta($sql, $params)->fetch();
 }
 
-/** Devuelve el primer valor de la primera fila. */
+/**
+ * Ejecuta una consulta y devuelve el primer valor de la primera fila
+ * (útil para COUNT, SUM o RETURNING).
+ */
 function valor($sql, $params = array())
 {
     return consulta($sql, $params)->fetchColumn();

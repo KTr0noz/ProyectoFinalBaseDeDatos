@@ -1,26 +1,36 @@
 <?php
-/*
- * Configuración de la conexión a PostgreSQL (Railway / Docker).
- * Toma DATABASE_URL del entorno o usa por defecto la instancia de Railway.
+/**
+ * ============================================================================
+ * ARCHIVO: ventas_app/config.php
+ * DESCRIPCIÓN:
+ *   Configuración central de la conexión a PostgreSQL y parámetros globales.
+ *   Soporta tanto despliegue en la nube (Railway mediante DATABASE_URL) como
+ *   ejecución local.
+ * ============================================================================
  */
-$defaultRailwayUrl = 'postgresql://postgres:bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ@ballast.proxy.rlwy.net:49477/railway';
-$envUrl = getenv('DATABASE_URL');
 
-if (!$envUrl || strpos($envUrl, '@host:') !== false) {
-    $databaseUrl = $defaultRailwayUrl;
+// 1. URL de conexión a PostgreSQL en Railway (usada por defecto si no se define otra)
+$urlPorDefecto = 'postgresql://postgres:bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ@ballast.proxy.rlwy.net:49477/railway';
+$urlEntorno    = getenv('DATABASE_URL');
+
+// Si existe DATABASE_URL válida en el entorno la usamos; de lo contrario, usamos la de Railway
+if (!$urlEntorno || strpos($urlEntorno, '@host:') !== false) {
+    $databaseUrl = $urlPorDefecto;
 } else {
-    $databaseUrl = $envUrl;
+    $databaseUrl = $urlEntorno;
 }
 
-$dbParts = parse_url($databaseUrl);
+// 2. Descomponer la URL (postgresql://usuario:clave@servidor:puerto/base_de_datos)
+$partesConexion = parse_url($databaseUrl);
 
-define('DB_HOST', $dbParts['host'] ?? 'ballast.proxy.rlwy.net');
-define('DB_PORT', (string)($dbParts['port'] ?? '49477'));
-define('DB_NAME', ltrim($dbParts['path'] ?? 'railway', '/'));
-define('DB_USER', $dbParts['user'] ?? 'postgres');
-define('DB_PASS', $dbParts['pass'] ?? 'bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ');
+define('DB_HOST', $partesConexion['host'] ?? 'ballast.proxy.rlwy.net');
+define('DB_PORT', (string)($partesConexion['port'] ?? '49477'));
+define('DB_NAME', ltrim($partesConexion['path'] ?? 'railway', '/'));
+define('DB_USER', $partesConexion['user'] ?? 'postgres');
+define('DB_PASS', $partesConexion['pass'] ?? 'bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ');
 
-// Unidades a partir de las cuales un artículo se considera con stock bajo
+// 3. Umbral de inventario para alertas de stock bajo (<= 5 unidades)
 define('STOCK_BAJO', 5);
 
+// 4. Zona horaria oficial de Colombia
 date_default_timezone_set('America/Bogota');

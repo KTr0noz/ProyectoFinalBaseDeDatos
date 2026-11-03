@@ -1,38 +1,72 @@
 <?php
-/*
- * Funciones comunes: salida segura, mensajes, validación de datos de entrada
- * y traducción de los errores de PostgreSQL a mensajes entendibles.
+/**
+ * ============================================================================
+ * ARCHIVO: ventas_app/includes/funciones.php
+ * DESCRIPCIÓN:
+ *   Funciones compartidas por toda la aplicación:
+ *     1. Respaldo de funciones multibyte (mbstring).
+ *     2. Constantes de negocio y estados permitidos (alineados con los CHECK).
+ *     3. Utilidades de formato y salida segura (prevención de XSS).
+ *     4. Validación de formularios del lado del servidor.
+ *     5. Traducción de errores SQLSTATE de PostgreSQL a mensajes en español.
+ *     6. Sincronización automática del estado de la venta y consulta 3FN.
+ * ============================================================================
  */
+
 session_start();
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/db.php';
 
-/*
- * Respaldo por si PHP no tiene la extensión mbstring (php-mbstring).
- * Sin ella, mb_strlen() no existe y cada formulario de guardar daba error 500.
- */
+/* ============================================================================
+ * 1. RESPALDO MULTIBYTE (por si el entorno PHP no tiene la extensión mbstring)
+ * ============================================================================ */
+
 if (!function_exists('mb_strlen')) {
     function mb_strlen($texto, $codificacion = null)
     {
         return preg_match_all('/./us', (string)$texto);
     }
 }
+
 if (!function_exists('mb_strtolower')) {
     function mb_strtolower($texto, $codificacion = null)
     {
-        return strtolower((string)$texto); // suficiente para correos (ASCII)
+        return strtolower((string)$texto);
     }
 }
 
-/* ---------- Listas cerradas (las mismas de los CHECK de la base) ---------- */
-$ESTADOS_VENTA = array('Pendiente', 'Pagada', 'Enviada', 'Entregada', 'Cancelada');
-$TIPOS_PAGO    = array('PSE', 'Tarjeta Visa', 'Tarjeta Mastercard', 'Efecty', 'Transferencia Bancaria');
-$ESTADOS_PAGO  = array('Pendiente', 'Aprobado', 'Rechazado');
+/* ============================================================================
+ * 2. REGLAS Y ESTADOS DEL NEGOCIO (idénticos a los CHECK de PostgreSQL)
+ * ============================================================================ */
 
-/*
- * Cambios de estado que se permiten hacer a mano en una venta.
- * Pendiente <-> Pagada también cambia sola según los pagos aprobados.
- * Entregada y Cancelada son estados finales.
+$ESTADOS_VENTA = array(
+    'Pendiente',
+    'Pagada',
+    'Enviada',
+    'Entregada',
+    'Cancelada',
+);
+
+$TIPOS_PAGO = array(
+    'PSE',
+    'Tarjeta Visa',
+    'Tarjeta Mastercard',
+    'Efecty',
+    'Transferencia Bancaria',
+);
+
+$ESTADOS_PAGO = array(
+    'Pendiente',
+    'Aprobado',
+    'Rechazado',
+);
+
+/**
+ * Transiciones de estado permitidas en una orden de venta:
+ *   - Pendiente -> Pagada o Cancelada
+ *   - Pagada    -> Enviada o Cancelada
+ *   - Enviada   -> Entregada
+ *   - Entregada y Cancelada son estados finales.
  */
 $TRANSICIONES_VENTA = array(
     'Pendiente' => array('Pagada', 'Cancelada'),
@@ -42,48 +76,52 @@ $TRANSICIONES_VENTA = array(
     'Cancelada' => array(),
 );
 
-/* Solo se registran, editan o eliminan pagos de ventas en estos estados */
+// Estados en los cuales una venta permite registrar, editar o eliminar pagos
 $VENTA_ACEPTA_PAGOS = array('Pendiente', 'Pagada');
 
-/* ---------- Utilidades de salida ---------- */
+/* ============================================================================
+ * 3. UTILIDADES DE SALIDA, FORMATO Y NAVEGACIÓN
+ * ============================================================================ */
 
-/** Escapa texto para mostrarlo en HTML (evita inyección de HTML/JS). */
+/** Escapa texto para imprimirlo de forma segura en HTML (evita XSS). */
 function h($texto)
 {
     return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8');
 }
 
-/** Texto seguro para usar dentro de JavaScript en un atributo HTML (ej. confirm). */
+/** Convierte un texto en literal JSON seguro para atributos HTML (ej. confirm). */
 function js($texto)
 {
     return h(json_encode((string)$texto, JSON_UNESCAPED_UNICODE));
 }
 
-/** Formatea un valor en pesos colombianos: $2.350.000 */
+/** Formatea un número en pesos colombianos: $2.350.000 */
 function dinero($valor)
 {
     return '$' . number_format((float)$valor, 0, ',', '.');
 }
 
-/** Formatea una fecha AAAA-MM-DD como DD/MM/AAAA. */
+/** Convierte una fecha AAAA-MM-DD al formato legible DD/MM/AAAA. */
 function fecha($valor)
 {
     $d = DateTime::createFromFormat('Y-m-d', substr((string)$valor, 0, 10));
     return $d ? $d->format('d/m/Y') : h($valor);
 }
 
+/** Redirige a otra URL y detiene la ejecución del script. */
 function redirigir($url)
 {
     header('Location: ' . $url);
     exit;
 }
 
-/** Guarda un mensaje para mostrarlo en la siguiente página. Tipo: ok | error | info */
+/** Guarda un aviso temporal en sesión para mostrarlo en la siguiente pantalla. */
 function flash($tipo, $mensaje)
 {
     $_SESSION['flash'][] = array($tipo, $mensaje);
 }
 
+/** Imprime y limpia los avisos temporales guardados en la sesión. */
 function mostrar_flash()
 {
     if (empty($_SESSION['flash'])) {
@@ -95,6 +133,7 @@ function mostrar_flash()
     unset($_SESSION['flash']);
 }
 
+/** Muestra una lista de errores de validación de un formulario. */
 function mostrar_errores($errores)
 {
     if (!$errores) {
@@ -107,17 +146,19 @@ function mostrar_errores($errores)
     echo '</ul></div>';
 }
 
+/** Obtiene un campo enviado por POST limpio de espacios extremos. */
 function post($clave, $defecto = '')
 {
     return isset($_POST[$clave]) ? trim((string)$_POST[$clave]) : $defecto;
 }
 
+/** Obtiene un parámetro enviado por GET limpio de espacios extremos. */
 function get($clave, $defecto = '')
 {
     return isset($_GET[$clave]) ? trim((string)$_GET[$clave]) : $defecto;
 }
 
-/** Genera las <option> de un <select>. $opciones = array(valor => texto) */
+/** Genera las etiquetas <option> a partir de un arreglo clave => texto. */
 function opciones($opciones, $seleccionado)
 {
     $html = '';
@@ -128,30 +169,38 @@ function opciones($opciones, $seleccionado)
     return $html;
 }
 
-/** Igual que opciones() pero cuando valor y texto son lo mismo. */
+/** Genera las etiquetas <option> cuando el valor y el texto visible son iguales. */
 function opciones_simples($lista, $seleccionado)
 {
     return opciones(array_combine($lista, $lista), $seleccionado);
 }
 
-/** Clase CSS para la etiqueta de un estado. */
+/** Devuelve el color semántico CSS asociado a un estado de venta o pago. */
 function clase_estado($estado)
 {
     $mapa = array(
-        'Pendiente' => 'gris', 'Pagada' => 'azul', 'Enviada' => 'morado',
-        'Entregada' => 'verde', 'Cancelada' => 'rojo',
-        'Aprobado' => 'verde', 'Rechazado' => 'rojo',
+        'Pendiente' => 'gris',
+        'Pagada'    => 'azul',
+        'Enviada'   => 'morado',
+        'Entregada' => 'verde',
+        'Cancelada' => 'rojo',
+        'Aprobado'  => 'verde',
+        'Rechazado' => 'rojo',
     );
     return isset($mapa[$estado]) ? $mapa[$estado] : 'gris';
 }
 
+/** Devuelve la píldora HTML coloreada para un estado de venta o pago. */
 function etiqueta_estado($estado)
 {
     return '<span class="etiqueta ' . clase_estado($estado) . '">' . h($estado) . '</span>';
 }
 
-/* ---------- Validación de datos de entrada ---------- */
+/* ============================================================================
+ * 4. VALIDACIONES DE DATOS DE ENTRADA
+ * ============================================================================ */
 
+/** Valida que un texto sea obligatorio (si aplica) y no supere la longitud máxima. */
 function validar_texto($valor, $campo, $max, &$errores, $obligatorio = true)
 {
     if ($valor === '') {
@@ -165,6 +214,7 @@ function validar_texto($valor, $campo, $max, &$errores, $obligatorio = true)
     }
 }
 
+/** Valida un texto contra una expresión regular. */
 function validar_patron($valor, $campo, $patron, $explicacion, &$errores)
 {
     if ($valor !== '' && !preg_match($patron, $valor)) {
@@ -172,7 +222,7 @@ function validar_patron($valor, $campo, $patron, $explicacion, &$errores)
     }
 }
 
-/** Entero dentro de un rango (por defecto, positivo y que quepa en INT4). */
+/** Valida que un valor sea un número entero no negativo dentro del rango permitido. */
 function validar_entero($valor, $campo, &$errores, $minimo = 1, $maximo = 2147483647)
 {
     if ($valor === '') {
@@ -186,7 +236,7 @@ function validar_entero($valor, $campo, &$errores, $minimo = 1, $maximo = 214748
     }
 }
 
-/** Valor en dinero: positivo, máximo 2 decimales y 10 dígitos enteros (NUMERIC(12,2)). */
+/** Valida un importe monetario positivo compatible con NUMERIC(12,2). */
 function validar_dinero($valor, $campo, &$errores)
 {
     if ($valor === '') {
@@ -198,6 +248,7 @@ function validar_dinero($valor, $campo, &$errores)
     }
 }
 
+/** Valida una fecha en formato ISO (AAAA-MM-DD). */
 function validar_fecha($valor, $campo, &$errores)
 {
     $d = DateTime::createFromFormat('Y-m-d', $valor);
@@ -206,6 +257,7 @@ function validar_fecha($valor, $campo, &$errores)
     }
 }
 
+/** Valida el formato de una dirección de correo electrónico. */
 function validar_email($valor, $campo, &$errores)
 {
     if ($valor !== '' && !filter_var($valor, FILTER_VALIDATE_EMAIL)) {
@@ -213,6 +265,7 @@ function validar_email($valor, $campo, &$errores)
     }
 }
 
+/** Valida que un valor pertenezca a una lista cerrada de opciones permitidas. */
 function validar_opcion($valor, $campo, $lista, &$errores)
 {
     if (!in_array($valor, $lista, true)) {
@@ -220,18 +273,20 @@ function validar_opcion($valor, $campo, $lista, &$errores)
     }
 }
 
-/* ---------- Errores de PostgreSQL ---------- */
+/* ============================================================================
+ * 5. TRADUCCIÓN DE ERRORES DE POSTGRESQL A MENSAJES ENTENDIBLES
+ * ============================================================================ */
 
 /**
- * Convierte una excepción de PostgreSQL en un mensaje claro.
- * Usa el SQLSTATE y el nombre de la restricción que falló.
+ * Convierte una excepción PDOException de PostgreSQL en un mensaje claro para el usuario,
+ * identificando el código SQLSTATE, los triggers (P0001) y las restricciones violadas.
  */
 function mensaje_error_bd(PDOException $e)
 {
     $estado = isset($e->errorInfo[0]) ? $e->errorInfo[0] : '';
     $texto  = isset($e->errorInfo[2]) ? $e->errorInfo[2] : $e->getMessage();
 
-    // Mensajes por nombre de restricción (CHECK y UNIQUE)
+    // Mensajes específicos para restricciones CHECK, PRIMARY KEY y UNIQUE
     $restricciones = array(
         'pk_cliente'           => 'Ya existe un cliente con esa cédula.',
         'ck_cliente_id'        => 'La cédula debe ser mayor que 0.',
@@ -247,7 +302,7 @@ function mensaje_error_bd(PDOException $e)
         'ck_forma_pago_estado' => 'El estado del pago no es válido.',
     );
 
-    // Mensajes de llaves foráneas al intentar borrar el registro padre (ON DELETE RESTRICT)
+    // Mensajes específicos cuando ON DELETE RESTRICT impide borrar un registro en uso
     $al_borrar = array(
         'fk_cliente_ciudad'     => 'No se puede eliminar la ciudad porque tiene clientes registrados.',
         'fk_articulo_categoria' => 'No se puede eliminar la categoría porque tiene artículos.',
@@ -256,7 +311,7 @@ function mensaje_error_bd(PDOException $e)
         'fk_forma_pago_venta'   => 'No se puede eliminar la venta porque tiene pagos registrados. Elimine primero los pagos.',
     );
 
-    // P0001 = RAISE EXCEPTION de un disparador: se muestra su propio mensaje
+    // P0001 = Excepción lanzada por un TRIGGER (ej. trg_descontar_stock_venta o trg_validar_fecha_pago)
     if ($estado === 'P0001') {
         if (preg_match('/ERROR:\s*(.+?)(\n|CONTEXT:|$)/s', $texto, $m)) {
             return trim($m[1]);
@@ -264,8 +319,7 @@ function mensaje_error_bd(PDOException $e)
         return $texto;
     }
 
-    // Violación de llave foránea. PostgreSQL 18 usa 23001 (restrict_violation)
-    // para ON DELETE RESTRICT; las versiones anteriores usaban 23503.
+    // 23503 / 23001 = Violación de llave foránea (ON DELETE RESTRICT)
     if ($estado === '23503' || $estado === '23001') {
         foreach ($al_borrar as $nombre => $mensaje) {
             if (strpos($texto, $nombre) !== false && stripos($texto, 'update or delete') !== false) {
@@ -275,15 +329,19 @@ function mensaje_error_bd(PDOException $e)
         return 'El registro relacionado no existe o está en uso por otra tabla.';
     }
 
-    if ($estado === '23505' || $estado === '23514') { // UNIQUE / CHECK
+    // 23505 = Violación UNIQUE / PK | 23514 = Violación CHECK
+    if ($estado === '23505' || $estado === '23514') {
         foreach ($restricciones as $nombre => $mensaje) {
             if (strpos($texto, $nombre) !== false) {
                 return $mensaje;
             }
         }
-        return $estado === '23505' ? 'Ese valor ya está registrado.' : 'Un dato no cumple las reglas de la base de datos.';
+        return $estado === '23505'
+            ? 'Ese valor ya está registrado.'
+            : 'Un dato no cumple las reglas de la base de datos.';
     }
 
+    // 23502 = Violación NOT NULL
     if ($estado === '23502') {
         return 'Falta un dato obligatorio.';
     }
@@ -291,23 +349,30 @@ function mensaje_error_bd(PDOException $e)
     return 'Error de la base de datos: ' . $texto;
 }
 
-/* ---------- Seguimiento de ventas y pagos ---------- */
+/* ============================================================================
+ * 6. LÓGICA DE SEGUIMIENTO DE VENTAS Y CONSULTA NORMALIZADA (3FN)
+ * ============================================================================ */
 
 /**
- * Suma de los pagos que no están rechazados (aprobados + pendientes) de una venta.
- * Se usa para no dejar pagar más del total. $excluir_pago: el pago que se está editando.
+ * Calcula la suma de los pagos no rechazados (Aprobado + Pendiente) de una venta.
+ * Se utiliza para evitar que se registren pagos por encima del valor total del pedido.
  */
 function pagos_comprometidos($id_venta, $excluir_pago = 0)
 {
-    return (float)valor("SELECT COALESCE(SUM(monto), 0) FROM forma_pago
-                         WHERE id_venta = ? AND estado <> 'Rechazado' AND id_pago <> ?",
-                        array((int)$id_venta, (int)$excluir_pago));
+    return (float)valor(
+        "SELECT COALESCE(SUM(monto), 0)
+         FROM forma_pago
+         WHERE id_venta = ?
+           AND estado <> 'Rechazado'
+           AND id_pago <> ?",
+        array((int)$id_venta, (int)$excluir_pago)
+    );
 }
 
 /**
- * Deja el estado de la venta de acuerdo con sus pagos aprobados:
- * - Pendiente y totalmente pagada  -> Pagada
- * - Pagada pero ya no cubre el total (se borró o rechazó un pago) -> Pendiente
+ * Sincroniza automáticamente el estado de la venta según sus pagos aprobados:
+ *   - Si está 'Pendiente' y los pagos aprobados cubren el total -> pasa a 'Pagada'.
+ *   - Si está 'Pagada' y al borrar/rechazar un pago deja de cubrir el total -> vuelve a 'Pendiente'.
  */
 function sincronizar_estado_venta($id_venta)
 {
@@ -315,7 +380,9 @@ function sincronizar_estado_venta($id_venta)
     if (!$v) {
         return;
     }
+
     $pagada = $v['total'] > 0 && (float)$v['pagado'] >= (float)$v['total'];
+
     if ($v['estado'] === 'Pendiente' && $pagada) {
         consulta("UPDATE venta SET estado = 'Pagada' WHERE id_venta = ?", array((int)$id_venta));
         flash('info', 'La venta #' . $v['id_venta'] . ' quedó totalmente pagada y pasó a estado Pagada.');
@@ -325,30 +392,42 @@ function sincronizar_estado_venta($id_venta)
     }
 }
 
-/* ---------- Consultas reutilizables ---------- */
-
 /**
- * SQL de ventas con su total calculado (no se guarda en la tabla, por 3FN),
- * las unidades vendidas y lo pagado con pagos aprobados.
+ * Consulta base de ventas bajo Tercera Forma Normal (3FN):
+ * El total de la venta NO se almacena estáticamente en la tabla `venta`;
+ * se calcula dinámicamente multiplicando `cantidad * precio` desde `detalle_venta` y `articulo`.
  */
 function sql_ventas()
 {
-    return "SELECT v.id_venta, v.fecha, v.estado, v.direccion_envio, v.id_cliente,
-                   c.nombre || ' ' || c.apellido AS cliente, ci.nombre AS ciudad,
-                   COALESCE(t.total, 0)    AS total,
-                   COALESCE(t.unidades, 0) AS unidades,
-                   COALESCE(p.pagado, 0)   AS pagado
+    return "SELECT
+                v.id_venta,
+                v.fecha,
+                v.estado,
+                v.direccion_envio,
+                v.id_cliente,
+                c.nombre || ' ' || c.apellido AS cliente,
+                ci.nombre                     AS ciudad,
+                COALESCE(t.total, 0)          AS total,
+                COALESCE(t.unidades, 0)       AS unidades,
+                COALESCE(p.pagado, 0)         AS pagado
             FROM venta v
             JOIN cliente c ON c.id_cliente = v.id_cliente
             JOIN ciudad ci ON ci.id_ciudad = c.id_ciudad
-            LEFT JOIN (SELECT dv.id_venta,
-                              SUM(dv.cantidad * a.precio) AS total,
-                              SUM(dv.cantidad)            AS unidades
-                       FROM detalle_venta dv
-                       JOIN articulo a ON a.id_articulo = dv.id_articulo
-                       GROUP BY dv.id_venta) t ON t.id_venta = v.id_venta
-            LEFT JOIN (SELECT id_venta, SUM(monto) AS pagado
-                       FROM forma_pago
-                       WHERE estado = 'Aprobado'
-                       GROUP BY id_venta) p ON p.id_venta = v.id_venta";
+            LEFT JOIN (
+                SELECT
+                    dv.id_venta,
+                    SUM(dv.cantidad * a.precio) AS total,
+                    SUM(dv.cantidad)            AS unidades
+                FROM detalle_venta dv
+                JOIN articulo a ON a.id_articulo = dv.id_articulo
+                GROUP BY dv.id_venta
+            ) t ON t.id_venta = v.id_venta
+            LEFT JOIN (
+                SELECT
+                    id_venta,
+                    SUM(monto) AS pagado
+                FROM forma_pago
+                WHERE estado = 'Aprobado'
+                GROUP BY id_venta
+            ) p ON p.id_venta = v.id_venta";
 }

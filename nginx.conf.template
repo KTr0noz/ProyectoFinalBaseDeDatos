@@ -1,3 +1,10 @@
+# ============================================================================
+# ARCHIVO: nginx.conf.template
+# DESCRIPCIÓN:
+#   Configuración de Nginx como servidor web y proxy FastCGI hacia PHP-FPM,
+#   con soporte de puerto dinámico (${PORT}) y cabeceras CORS para Railway.
+# ============================================================================
+
 server {
     listen ${PORT};
     server_name _;
@@ -5,17 +12,16 @@ server {
     root /var/www/html/ventas_app;
     index index.php index.html;
 
-    # Logs redirigidos a stdout/stderr para Railway y contenedores cloud
+    # Redirección de logs a stdout/stderr para monitoreo en Railway y Docker
     access_log /dev/stdout;
     error_log /dev/stderr;
 
-    # Cabeceras CORS para permitir consumo desde cualquier plataforma/origen
+    # Cabeceras CORS para permitir peticiones desde cualquier plataforma u origen
     add_header 'Access-Control-Allow-Origin' '*' always;
     add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, PATCH, DELETE, OPTIONS' always;
     add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
     add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
 
-    # Responder rápidamente a preflight requests (OPTIONS)
     if ($request_method = 'OPTIONS') {
         return 204;
     }
@@ -24,7 +30,7 @@ server {
         try_files $uri $uri/ /index.php?$query_string;
     }
 
-    # Proxy FastCGI hacia PHP-FPM
+    # Proxy FastCGI hacia PHP-FPM (puerto interno 9000)
     location ~ \.php$ {
         try_files $uri =404;
         fastcgi_split_path_info ^(.+\.php)(/.+)$;
@@ -34,7 +40,7 @@ server {
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         fastcgi_param PATH_INFO $fastcgi_path_info;
 
-        # Cabeceras de proxy para preservar IP y protocolo en plataformas como Railway
+        # Cabeceras de proxy para preservar IP y protocolo HTTPS en Railway
         fastcgi_param HTTP_X_FORWARDED_FOR $proxy_add_x_forwarded_for;
         fastcgi_param HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
         fastcgi_param HTTPS $https if_not_empty;
