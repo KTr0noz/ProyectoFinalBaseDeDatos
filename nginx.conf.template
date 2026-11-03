@@ -1,0 +1,46 @@
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /var/www/html;
+    index index.php index.html;
+
+    # Logs redirigidos a stdout/stderr para Railway y contenedores cloud
+    access_log /dev/stdout;
+    error_log /dev/stderr;
+
+    # Cabeceras CORS para permitir consumo desde cualquier plataforma/origen
+    add_header 'Access-Control-Allow-Origin' '*' always;
+    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, PATCH, DELETE, OPTIONS' always;
+    add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+    add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+
+    # Responder rápidamente a preflight requests (OPTIONS)
+    if ($request_method = 'OPTIONS') {
+        return 204;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # Proxy FastCGI hacia PHP-FPM
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+
+        # Cabeceras de proxy para preservar IP y protocolo en plataformas como Railway
+        fastcgi_param HTTP_X_FORWARDED_FOR $proxy_add_x_forwarded_for;
+        fastcgi_param HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
+        fastcgi_param HTTPS $https if_not_empty;
+    }
+
+    location ~ /\.ht {
+        deny all;
+    }
+}

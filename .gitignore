@@ -1,0 +1,15 @@
+# Entornos y secretos locales
+.env
+.env.local
+
+# Cachés de Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Archivos del sistema operativo e IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
