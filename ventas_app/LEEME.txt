@@ -12,15 +12,25 @@ Si falta mbstring la aplicación igual funciona (trae un respaldo), pero se reco
    sudo -u postgres psql < ventas_internet.sql
 
 
-2. CREAR EL USUARIO QUE USA LA APLICACIÓN (una sola vez)
+2. CREAR EL USUARIO QUE USA LA APLICACIÓN Y LOS ROLES (una sola vez)
 
-   cd "/home/jeronimolopez/Bases De Datos/PROYECTO/ventas_app"
-   sudo -u postgres psql -d proyecto < usuario_app.sql
+   cd "/home/jeronimolopez/Bases De Datos/PROYECTO"
+   sudo -u postgres psql -d proyecto < ventas_app/usuario_app.sql
+   sudo -u postgres psql -d proyecto < login_roles.sql
 
-   Crea el usuario app_ventas con clave ventas2026. Si la cambias,
+   Crea el usuario app_ventas con clave ventas2026 y configura los roles de
+   PostgreSQL (rol_visitante, rol_cliente, rol_admin). Si cambias la clave,
    cámbiala también en config.php.
    Si vuelves a ejecutar ventas_internet.sql (borra y crea la base),
    repite este paso.
+
+
+2.1 CREAR EL ADMINISTRADOR POR DEFECTO (CLI)
+
+   Define en .env (en la raíz del repositorio) o en variables de entorno:
+     ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_CEDULA, ADMIN_NOMBRE, ADMIN_APELLIDO, ADMIN_CIUDAD
+   Y ejecuta desde la raíz del proyecto:
+     php scripts/crear_admin.php
 
 
 3. INICIAR LA APLICACIÓN
@@ -36,9 +46,12 @@ ARCHIVOS
 --------
 config.php            Datos de conexión (servidor, base, usuario, clave)
 includes/db.php       Conexión PDO y funciones para consultar
+includes/auth.php     Autenticación, sesiones, protección CSRF y SET ROLE por rol
 includes/funciones.php  Validaciones, mensajes y traducción de errores de PostgreSQL
-includes/encabezado.php, includes/pie.php   Menú y pie comunes
+includes/encabezado.php, includes/encabezado_tienda.php, includes/pie.php   Menús y pie comunes
 css/estilos.css       Diseño de las pantallas
+login.php, registro.php, salir.php   Inicio de sesión, registro público y cierre de sesión
+tienda.php, articulo.php, carrito.php, mis_compras.php   Tienda y compras para el rol cliente
 index.php             Inicio: indicadores, últimas ventas y stock bajo
 ventas.php            Lista de ventas con total/pagado/saldo y registro de venta nueva
 venta.php             Ficha de una venta: artículos, pagos y cambio de estado
@@ -63,6 +76,8 @@ CÓMO CUMPLE LOS REQUISITOS DEL PROYECTO
   lo impide y la app muestra un mensaje claro. Al corregir la cédula de un
   cliente, sus ventas se actualizan solas (ON UPDATE CASCADE).
 - El total de cada venta no se guarda: se calcula con una consulta (3FN).
+- Autenticación y autorización por roles (admin / cliente) tanto en PHP
+  como en PostgreSQL mediante SET ROLE (rol_visitante, rol_cliente, rol_admin).
 
 PRUEBAS RÁPIDAS PARA LA SUSTENTACIÓN
 ------------------------------------

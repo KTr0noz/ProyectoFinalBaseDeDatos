@@ -17,6 +17,8 @@ Base de datos relacional normalizada en **Tercera Forma Normal (3FN)** sobre **P
 | Ruta | Descripción |
 | :--- | :--- |
 | `ventas_internet.sql` | Script DDL/DML de PostgreSQL: crea las 7 tablas, restricciones `CHECK`, llaves foráneas y disparadores (`triggers`) |
+| `login_roles.sql` | Migración idempotente: agrega `password_hash` y `rol` a `cliente`, crea roles de BD (`rol_visitante`, `rol_cliente`, `rol_admin`) y define `fn_descontar_stock_venta()` como `SECURITY DEFINER` |
+| `scripts/crear_admin.php` | Script CLI idempotente (fuera del document root) que crea o actualiza la cuenta de administrador leyendo variables de entorno |
 | `backup-proyecto.sql` | Respaldo (`pg_dump`) de la base de datos |
 | `Informe_BD_proyecto.pdf` | Informe técnico: Modelo Entidad-Relación, Modelo Relacional (3FN) y Diccionario de Datos |
 | `Dockerfile` | Imagen Docker con PHP-FPM (Alpine), Nginx y extensiones `pdo_pgsql` / `pgsql` |
@@ -24,8 +26,15 @@ Base de datos relacional normalizada en **Tercera Forma Normal (3FN)** sobre **P
 | `entrypoint.sh` | Script de arranque de PHP-FPM y Nginx |
 | `ventas_app/` | Aplicación web en PHP sin frameworks |
 | `ventas_app/config.php` | Configuración central de conexión a PostgreSQL (`DATABASE_URL` / Railway) |
-| `ventas_app/includes/` | Conexión PDO (`db.php`), validaciones/reglas de negocio (`funciones.php`) y plantillas (`encabezado.php`, `pie.php`) |
-| `ventas_app/index.php` | Inicio: Bandeja «Por hacer», embudo de estados, indicadores y últimas ventas |
+| `ventas_app/includes/` | Conexión PDO (`db.php`), autenticación y roles (`auth.php`), validaciones/reglas de negocio (`funciones.php`) y plantillas (`encabezado.php`, `encabezado_tienda.php`, `pie.php`) |
+| `ventas_app/login.php` | Inicio de sesión por correo y contraseña |
+| `ventas_app/registro.php` | Registro público de clientes compradores (`rol = 'cliente'`) |
+| `ventas_app/salir.php` | Cierre de sesión seguro vía POST + CSRF |
+| `ventas_app/tienda.php` | Catálogo de artículos disponibles para clientes (`stock > 0`) |
+| `ventas_app/articulo.php` | Ficha individual de artículo para agregar al carrito |
+| `ventas_app/carrito.php` | Carrito de compras en sesión y confirmación transaccional del pedido |
+| `ventas_app/mis_compras.php` | Historial y detalle de compras del cliente autenticado |
+| `ventas_app/index.php` | Inicio (Admin): Bandeja «Por hacer», embudo de estados, indicadores y últimas ventas |
 | `ventas_app/ventas.php` | Listado general de órdenes de venta con totales calculados (3FN) y creación de pedidos |
 | `ventas_app/venta.php` | Ficha detallada de una venta: líneas de artículos, pagos y seguimiento |
 | `ventas_app/pagos.php` | Gestión y validación de pagos (`forma_pago`) |
@@ -34,6 +43,33 @@ Base de datos relacional normalizada en **Tercera Forma Normal (3FN)** sobre **P
 | `ventas_app/clientes.php` | Gestión de clientes compradores (`cliente`) |
 | `ventas_app/ciudades.php` | Gestión de ciudades (`ciudad`) |
 | `ventas_app/api.php` | Endpoint JSON de estado y conteo de registros en tiempo real |
+
+---
+
+## Migración de Roles y Creación del Administrador
+
+1. **Aplicar la migración SQL idempotente (`login_roles.sql`)**:
+
+```bash
+psql "$DATABASE_URL" -f login_roles.sql
+```
+
+2. **Configurar las variables de entorno** (en `.env` local o en el panel de variables de Railway):
+
+```ini
+ADMIN_EMAIL=correo_admin@dominio.com
+ADMIN_PASSWORD=tu_clave_segura
+ADMIN_CEDULA=numero_documento
+ADMIN_NOMBRE=Nombre
+ADMIN_APELLIDO=Apellido
+ADMIN_CIUDAD=Villavicencio
+```
+
+3. **Ejecutar el script CLI para crear o actualizar el administrador**:
+
+```bash
+php scripts/crear_admin.php
+```
 
 ---
 
