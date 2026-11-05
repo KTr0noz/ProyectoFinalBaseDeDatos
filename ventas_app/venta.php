@@ -13,6 +13,7 @@
  */
 
 require_once 'includes/funciones.php';
+require_admin();
 
 $id    = (int)get('id');
 $venta = fila(sql_ventas() . ' WHERE v.id_venta = ?', array($id));

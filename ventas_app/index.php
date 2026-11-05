@@ -12,6 +12,7 @@
  */
 
 require_once 'includes/funciones.php';
+require_admin();
 
 $ventas_sql = sql_ventas();
 

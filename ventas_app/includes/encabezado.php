@@ -54,6 +54,19 @@ $menu = array(
                 </div>
             <?php endforeach; ?>
         </nav>
+
+        <?php $usuario_sesion = usuario_actual(); if ($usuario_sesion): ?>
+            <div class="riel-sesion">
+                <div class="riel-usuario">
+                    <span class="riel-nombre"><?= h($usuario_sesion['nombre'] . ' ' . $usuario_sesion['apellido']) ?></span>
+                    <span class="riel-correo"><?= h($usuario_sesion['email']) ?></span>
+                </div>
+                <form method="post" action="salir.php">
+                    <?= csrf_campo() ?>
+                    <button class="boton-riel-salir">Salir</button>
+                </form>
+            </div>
+        <?php endif; ?>
     </aside>
 
     <div class="columna">

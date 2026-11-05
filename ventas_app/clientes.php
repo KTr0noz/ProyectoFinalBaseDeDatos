@@ -16,6 +16,7 @@
  */
 
 require_once 'includes/funciones.php';
+require_admin();
 
 $accion  = get('accion');
 $errores = array();
@@ -38,8 +39,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 1.1 Eliminar cliente
     if (post('accion') === 'eliminar') {
+        $id_eliminar = (int)post('id_cliente');
+        $objetivo    = fila('SELECT rol FROM cliente WHERE id_cliente = ?', array($id_eliminar));
+
+        if ($objetivo && $objetivo['rol'] === 'admin') {
+            flash('error', 'No se puede eliminar una cuenta de administrador.');
+            redirigir('clientes.php');
+        }
+
         try {
-            consulta('DELETE FROM cliente WHERE id_cliente = ?', array((int)post('id_cliente')));
+            consulta('DELETE FROM cliente WHERE id_cliente = ?', array($id_eliminar));
             flash('ok', 'Cliente eliminado.');
         } catch (PDOException $e) {
             flash('error', mensaje_error_bd($e));
@@ -59,24 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'id_ciudad'  => post('id_ciudad'),
     );
 
-    validar_entero($datos['id_cliente'], 'Cédula', $errores);
-    validar_texto($datos['nombre'], 'Nombre', 80, $errores);
-    validar_texto($datos['apellido'], 'Apellido', 80, $errores);
-    validar_texto($datos['email'], 'Correo', 120, $errores);
-    validar_email($datos['email'], 'Correo', $errores);
-    validar_texto($datos['telefono'], 'Teléfono', 20, $errores);
-    validar_patron(
-        $datos['telefono'],
-        'Teléfono',
-        '/^[0-9+() -]{7,20}$/',
-        'solo números, espacios, +, ( ) o guiones (mínimo 7).',
-        $errores
-    );
-    validar_texto($datos['direccion'], 'Dirección', 150, $errores);
-
-    if (!fila('SELECT 1 FROM ciudad WHERE id_ciudad = ?', array((int)$datos['id_ciudad']))) {
-        $errores[] = 'Seleccione una ciudad.';
-    }
+    validar_datos_cliente($datos, $errores);
 
     if (!$errores) {
         $params = array(
@@ -121,7 +113,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
  * ============================================================================ */
 
 if ($accion === 'editar') {
-    $datos = fila('SELECT * FROM cliente WHERE id_cliente = ?', array((int)get('id')));
+    $datos = fila(
+        'SELECT id_cliente, nombre, apellido, email, telefono, direccion, id_ciudad, rol
+         FROM cliente
+         WHERE id_cliente = ?',
+        array((int)get('id'))
+    );
     if (!$datos) {
         flash('error', 'El cliente no existe.');
         redirigir('clientes.php');
@@ -209,7 +206,14 @@ if ($accion === 'formulario'):
     $q = get('q');
     $lista = filas(
         "SELECT
-             c.*,
+             c.id_cliente,
+             c.nombre,
+             c.apellido,
+             c.email,
+             c.telefono,
+             c.direccion,
+             c.id_ciudad,
+             c.rol,
              ci.nombre AS ciudad,
              (SELECT COUNT(*) FROM venta v WHERE v.id_cliente = c.id_cliente) AS ventas
          FROM cliente c
@@ -265,11 +269,13 @@ if ($accion === 'formulario'):
                             </td>
                             <td class="acciones">
                                 <a class="boton secundario chico" href="clientes.php?accion=editar&id=<?= $c['id_cliente'] ?>">Editar</a>
-                                <form method="post" onsubmit="return confirm(<?= js('¿Eliminar al cliente ' . $c['nombre'] . ' ' . $c['apellido'] . '?') ?>)">
-                                    <input type="hidden" name="accion" value="eliminar">
-                                    <input type="hidden" name="id_cliente" value="<?= $c['id_cliente'] ?>">
-                                    <button class="boton peligro chico">Eliminar</button>
-                                </form>
+                                <?php if ($c['rol'] !== 'admin'): ?>
+                                    <form method="post" onsubmit="return confirm(<?= js('¿Eliminar al cliente ' . $c['nombre'] . ' ' . $c['apellido'] . '?') ?>)">
+                                        <input type="hidden" name="accion" value="eliminar">
+                                        <input type="hidden" name="id_cliente" value="<?= $c['id_cliente'] ?>">
+                                        <button class="boton peligro chico">Eliminar</button>
+                                    </form>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>

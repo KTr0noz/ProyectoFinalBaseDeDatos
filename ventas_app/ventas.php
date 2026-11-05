@@ -13,6 +13,7 @@
  */
 
 require_once 'includes/funciones.php';
+require_admin();
 
 $accion  = get('accion');
 $errores = array();
@@ -72,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'direccion_envio' => post('direccion_envio'),
     );
 
-    $cliente = fila('SELECT * FROM cliente WHERE id_cliente = ?', array((int)$datos['id_cliente']));
+    $cliente = fila('SELECT id_cliente, direccion FROM cliente WHERE id_cliente = ?', array((int)$datos['id_cliente']));
     if (!$cliente) {
         $errores[] = 'Seleccione un cliente.';
     }

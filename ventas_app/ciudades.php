@@ -11,6 +11,7 @@
  */
 
 require_once 'includes/funciones.php';
+require_admin();
 
 $accion  = get('accion');
 $errores = array();
