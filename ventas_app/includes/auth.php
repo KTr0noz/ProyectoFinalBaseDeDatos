@@ -1,5 +1,27 @@
 <?php
 
+$ruta_env_local = dirname(__DIR__, 2) . '/.env';
+if (is_file($ruta_env_local) && is_readable($ruta_env_local)) {
+    foreach (file($ruta_env_local, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $linea_env) {
+        $linea_env = trim($linea_env);
+        if ($linea_env === '' || strpos($linea_env, '#') === 0 || strpos($linea_env, '=') === false) {
+            continue;
+        }
+        list($clave_env, $valor_env) = explode('=', $linea_env, 2);
+        $clave_env = trim($clave_env);
+        $valor_env = trim($valor_env);
+        if (
+            (substr($valor_env, 0, 1) === '"' && substr($valor_env, -1) === '"')
+            || (substr($valor_env, 0, 1) === "'" && substr($valor_env, -1) === "'")
+        ) {
+            $valor_env = substr($valor_env, 1, -1);
+        }
+        if ($clave_env !== '' && getenv($clave_env) === false) {
+            putenv($clave_env . '=' . $valor_env);
+        }
+    }
+}
+
 define('INACTIVIDAD_SESION', 1800);
 
 $ROLES_CLIENTE = array(

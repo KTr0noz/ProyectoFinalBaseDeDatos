@@ -5,28 +5,7 @@ if (php_sapi_name() !== 'cli') {
     exit("Acceso denegado: este script solo puede ejecutarse desde CLI.\n");
 }
 
-$ruta_env = dirname(__DIR__) . '/.env';
-if (is_file($ruta_env) && is_readable($ruta_env)) {
-    $lineas = file($ruta_env, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lineas as $linea) {
-        $linea = trim($linea);
-        if ($linea === '' || strpos($linea, '#') === 0 || strpos($linea, '=') === false) {
-            continue;
-        }
-        list($clave, $valor) = explode('=', $linea, 2);
-        $clave = trim($clave);
-        $valor = trim($valor);
-        if (
-            (substr($valor, 0, 1) === '"' && substr($valor, -1) === '"')
-            || (substr($valor, 0, 1) === "'" && substr($valor, -1) === "'")
-        ) {
-            $valor = substr($valor, 1, -1);
-        }
-        if ($clave !== '' && getenv($clave) === false) {
-            putenv($clave . '=' . $valor);
-        }
-    }
-}
+require_once __DIR__ . '/../ventas_app/includes/funciones.php';
 
 $requeridas = array(
     'ADMIN_EMAIL',
@@ -49,8 +28,6 @@ if ($faltantes) {
     fwrite(STDERR, 'Error: faltan variables de entorno obligatorias: ' . implode(', ', $faltantes) . ".\n");
     exit(1);
 }
-
-require_once __DIR__ . '/../ventas_app/includes/funciones.php';
 
 $email         = mb_strtolower(trim((string)getenv('ADMIN_EMAIL')), 'UTF-8');
 $password      = (string)getenv('ADMIN_PASSWORD');
