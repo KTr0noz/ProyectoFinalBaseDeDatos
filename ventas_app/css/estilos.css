@@ -908,3 +908,406 @@ td.fecha {
     from { opacity: 0; }
     to   { opacity: 1; }
 }
+
+/* ============================================================================
+ * 15. Autenticación y tienda de clientes (tokens :root de MASTER.md)
+ * ============================================================================ */
+
+.riel-sesion {
+    margin-top: auto;
+    padding-top: var(--e4);
+    border-top: 1px solid var(--nav-hover);
+    display: flex;
+    flex-direction: column;
+    gap: var(--e2);
+}
+
+.riel-usuario {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 var(--e2);
+}
+
+.riel-nombre {
+    font-size: var(--f-etiqueta);
+    font-weight: 600;
+    color: var(--sobre-tinta);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.riel-correo {
+    font-size: var(--f-columna);
+    color: var(--nav);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.boton-riel-salir {
+    width: 100%;
+    padding: 6px var(--e3);
+    border: 1px solid var(--nav-grupo);
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--sobre-tinta);
+    font: inherit;
+    font-size: var(--f-etiqueta);
+    font-weight: 500;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color var(--t-rapido) var(--curva), border-color var(--t-rapido) var(--curva);
+}
+.boton-riel-salir:hover {
+    background: var(--nav-hover);
+    border-color: var(--sobre-tinta);
+}
+.boton-riel-salir:focus-visible {
+    outline-color: var(--sobre-tinta);
+}
+
+.cuerpo-auth {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--fondo);
+}
+
+.barra-auth {
+    background: var(--superficie);
+    border-bottom: 1px solid var(--linea);
+    padding: var(--e3) var(--e6);
+}
+
+.barra-auth-interior {
+    max-width: var(--contenido);
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--e4);
+}
+
+.marca.marca-oscura {
+    color: var(--tinta);
+    padding: 0;
+}
+.marca.marca-oscura:focus-visible {
+    outline-color: var(--tinta);
+}
+
+.enlace-auth {
+    font-size: var(--f-control);
+    font-weight: 500;
+}
+
+.contenedor-auth {
+    flex: 1;
+    width: 100%;
+    max-width: 440px;
+    margin: 0 auto;
+    padding: var(--e12) var(--e4);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.contenedor-auth.contenedor-auth-ancho {
+    max-width: 760px;
+}
+
+.panel-auth {
+    background: var(--superficie);
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    padding: var(--e8);
+}
+
+.cabecera-auth {
+    margin-bottom: var(--e6);
+}
+
+.formulario-auth {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+}
+
+.botones-auth {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e2);
+    margin-top: var(--e2);
+}
+
+.boton-completo {
+    width: 100%;
+}
+
+.pie-auth {
+    margin: 0 auto;
+    width: 100%;
+    max-width: var(--contenido);
+    padding: var(--e4) var(--e6);
+    text-align: center;
+}
+
+.app-tienda {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.barra-tienda {
+    background: var(--tinta);
+    color: var(--sobre-tinta);
+    padding: var(--e3) var(--e8);
+}
+
+.barra-tienda-interior {
+    max-width: var(--contenido);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--e4);
+    flex-wrap: wrap;
+}
+
+.nav-tienda {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    flex-wrap: wrap;
+}
+
+.nav-tienda a {
+    color: var(--nav);
+    text-decoration: none;
+    font-size: var(--f-control);
+    padding: 6px var(--e3);
+    border-radius: var(--r-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--e1);
+    transition: color var(--t-rapido) var(--curva), background-color var(--t-rapido) var(--curva);
+}
+.nav-tienda a:hover {
+    color: var(--sobre-tinta);
+    background: var(--nav-hover);
+}
+.nav-tienda a:focus-visible {
+    outline-color: var(--sobre-tinta);
+}
+.nav-tienda a.activo {
+    color: var(--sobre-tinta);
+    background: var(--nav-hover);
+    font-weight: 500;
+}
+
+.contador-carrito {
+    background: var(--sobre-tinta);
+    color: var(--tinta);
+    font-size: var(--f-columna);
+    font-weight: 600;
+    padding: 1px var(--e2);
+    border-radius: var(--r-pill);
+    font-variant-numeric: tabular-nums;
+}
+
+.usuario-tienda {
+    display: flex;
+    align-items: center;
+    gap: var(--e3);
+}
+
+.nombre-usuario-tienda {
+    font-size: var(--f-etiqueta);
+    color: var(--nav);
+}
+
+.contenido-tienda {
+    margin: 0 auto;
+}
+
+.grilla-tienda {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--e6);
+}
+
+.tarjeta-articulo {
+    background: var(--superficie);
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    padding: var(--e6);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: var(--e4);
+    transition: border-color var(--t-rapido) var(--curva);
+}
+.tarjeta-articulo:hover {
+    border-color: var(--linea-fuerte);
+}
+
+.tarjeta-articulo-titulo {
+    font-size: var(--f-h2);
+    margin: var(--e1) 0 var(--e2);
+}
+.tarjeta-articulo-titulo a {
+    text-decoration: none;
+}
+.tarjeta-articulo-titulo a:hover {
+    text-decoration: underline;
+}
+
+.tarjeta-articulo-desc {
+    color: var(--suave);
+    font-size: var(--f-control);
+    margin: 0;
+}
+
+.tarjeta-articulo-pie {
+    border-top: 1px solid var(--linea);
+    padding-top: var(--e3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--e2);
+}
+
+.precio-tienda {
+    font-size: var(--f-h1);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.disponibilidad-tienda {
+    font-size: var(--f-columna);
+}
+
+.acciones-tarjeta {
+    display: flex;
+    gap: var(--e2);
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: var(--e1);
+}
+.acciones-tarjeta form {
+    margin: 0;
+}
+
+.vacio-tienda {
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    padding: var(--e12) var(--e6);
+    text-align: center;
+    color: var(--suave);
+}
+
+.ficha-articulo {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+    gap: var(--e8);
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    padding: var(--e8);
+}
+
+.ficha-precio {
+    font-size: var(--f-monto);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    margin: var(--e2) 0 var(--e4);
+}
+
+.ficha-descripcion {
+    margin: 0 0 var(--e6);
+    color: var(--tinta);
+}
+
+.ficha-stock {
+    padding-top: var(--e4);
+    border-top: 1px solid var(--linea);
+    font-size: var(--f-control);
+}
+
+.ficha-articulo-compra {
+    background: var(--fondo);
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    padding: var(--e6);
+    align-self: start;
+}
+
+.formulario-compra,
+.formulario-confirmar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+}
+
+.form-cantidad-carrito {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--e1);
+    justify-content: flex-end;
+}
+.form-cantidad-carrito input {
+    width: 72px;
+    text-align: right;
+    padding: 4px var(--e2);
+}
+
+.panel-confirmar {
+    background: var(--fondo);
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    padding: var(--e6);
+    align-self: start;
+}
+
+.resumen-compra {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: var(--e3) 0;
+    border-top: 1px solid var(--linea);
+    border-bottom: 1px solid var(--linea);
+    font-variant-numeric: tabular-nums;
+}
+.resumen-compra strong {
+    font-size: var(--f-h1);
+    font-weight: 600;
+}
+
+@media (max-width: 860px) {
+    .barra-tienda {
+        padding: var(--e3) var(--e4);
+    }
+    .ficha-articulo {
+        grid-template-columns: 1fr;
+        padding: var(--e6);
+    }
+    .panel-auth {
+        padding: var(--e6);
+    }
+    .riel-sesion {
+        margin-top: 0;
+        padding-top: var(--e2);
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .boton-riel-salir {
+        width: auto;
+    }
+}
+
+@media (pointer: coarse) {
+    .nav-tienda a, .boton-riel-salir {
+        min-height: var(--toque);
+    }
+}
