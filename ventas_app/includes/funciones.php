@@ -13,9 +13,29 @@
  * ============================================================================
  */
 
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+
+    $es_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string)$_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+
+    if (PHP_SAPI !== 'cli') {
+        session_set_cookie_params(array(
+            'lifetime' => 0,
+            'path'     => '/',
+            'domain'   => '',
+            'secure'   => $es_https,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ));
+        session_start();
+    }
+}
+
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/auth.php';
 
 /* ============================================================================
  * 1. RESPALDO MULTIBYTE (por si el entorno PHP no tiene la extensión mbstring)
@@ -297,9 +317,11 @@ function mensaje_error_bd(PDOException $e)
         'pk_detalle_venta'     => 'Ese artículo ya está en la venta. Si necesita más unidades, quite la línea y agréguela con la cantidad total.',
         'ck_detalle_cantidad'  => 'La cantidad debe ser mayor que 0.',
         'ck_venta_estado'      => 'El estado de la venta no es válido.',
-        'ck_forma_pago_tipo'   => 'El medio de pago no es válido.',
-        'ck_forma_pago_monto'  => 'El monto del pago debe ser mayor que 0.',
-        'ck_forma_pago_estado' => 'El estado del pago no es válido.',
+        'ck_forma_pago_tipo'         => 'El medio de pago no es válido.',
+        'ck_forma_pago_monto'        => 'El monto del pago debe ser mayor que 0.',
+        'ck_forma_pago_estado'       => 'El estado del pago no es válido.',
+        'ck_cliente_rol'             => 'El rol del cliente no es válido.',
+        'ck_cliente_admin_con_clave' => 'Una cuenta de administrador debe tener contraseña.',
     );
 
     // Mensajes específicos cuando ON DELETE RESTRICT impide borrar un registro en uso
@@ -344,6 +366,11 @@ function mensaje_error_bd(PDOException $e)
     // 23502 = Violación NOT NULL
     if ($estado === '23502') {
         return 'Falta un dato obligatorio.';
+    }
+
+    if ($estado === '42501') {
+        error_log('Permiso denegado en PostgreSQL [42501]: ' . $texto);
+        return 'No tiene permisos para realizar esta operación.';
     }
 
     return 'Error de la base de datos: ' . $texto;
