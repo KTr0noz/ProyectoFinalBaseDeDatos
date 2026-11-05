@@ -23,6 +23,9 @@ if (is_file($ruta_env_local) && is_readable($ruta_env_local)) {
 }
 
 define('INACTIVIDAD_SESION', 1800);
+define('MAX_INTENTOS_LOGIN', 5);
+define('VENTANA_INTENTOS_LOGIN', 600);
+define('TIEMPO_BLOQUEO_LOGIN', 300);
 
 $ROLES_CLIENTE = array(
     'admin',
@@ -46,10 +49,14 @@ function aplicar_rol_bd($rol_forzado = null)
 
     if ($rol === 'admin') {
         db()->exec('SET ROLE rol_admin');
+        consulta("SELECT set_config('app.id_cliente', '', false)");
     } elseif ($rol === 'cliente') {
         db()->exec('SET ROLE rol_cliente');
+        $id_sesion = isset($_SESSION['id_cliente']) ? (string)(int)$_SESSION['id_cliente'] : '';
+        consulta("SELECT set_config('app.id_cliente', ?, false)", array($id_sesion));
     } else {
         db()->exec('SET ROLE rol_visitante');
+        consulta("SELECT set_config('app.id_cliente', '', false)");
     }
 }
 
@@ -182,6 +189,70 @@ function csrf_validar()
         return false;
     }
     return hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']);
+}
+
+function ruta_intentos_login($email)
+{
+    $ip    = isset($_SERVER['REMOTE_ADDR']) ? (string)$_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+    $llave = hash('sha256', $ip . '|' . mb_strtolower((string)$email, 'UTF-8'));
+    return rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'vi_login_' . $llave . '.json';
+}
+
+function login_bloqueado($email)
+{
+    $archivo = ruta_intentos_login($email);
+    if (!is_file($archivo) || !is_readable($archivo)) {
+        return false;
+    }
+
+    $contenido = file_get_contents($archivo);
+    $datos     = is_string($contenido) ? json_decode($contenido, true) : null;
+    if (!is_array($datos)) {
+        return false;
+    }
+
+    $ahora = time();
+    if (!empty($datos['bloqueado_hasta']) && (int)$datos['bloqueado_hasta'] > $ahora) {
+        return true;
+    }
+
+    return false;
+}
+
+function registrar_intento_login($email, $exito)
+{
+    $archivo = ruta_intentos_login($email);
+
+    if ($exito) {
+        if (is_file($archivo)) {
+            @unlink($archivo);
+        }
+        return;
+    }
+
+    $ahora    = time();
+    $intentos = array();
+
+    if (is_file($archivo) && is_readable($archivo)) {
+        $contenido = file_get_contents($archivo);
+        $previo    = is_string($contenido) ? json_decode($contenido, true) : null;
+        if (is_array($previo) && !empty($previo['intentos']) && is_array($previo['intentos'])) {
+            foreach ($previo['intentos'] as $ts) {
+                if (($ahora - (int)$ts) < VENTANA_INTENTOS_LOGIN) {
+                    $intentos[] = (int)$ts;
+                }
+            }
+        }
+    }
+
+    $intentos[]      = $ahora;
+    $bloqueado_hasta = count($intentos) >= MAX_INTENTOS_LOGIN ? ($ahora + TIEMPO_BLOQUEO_LOGIN) : 0;
+
+    file_put_contents(
+        $archivo,
+        json_encode(array('intentos' => $intentos, 'bloqueado_hasta' => $bloqueado_hasta)),
+        LOCK_EX
+    );
 }
 
 function validar_clave($clave, $confirmacion, &$errores, $verificar_confirmacion = true)

@@ -46,6 +46,10 @@ function destino($volver, $id_venta)
  * ============================================================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir('pagos.php');
+    }
 
     // 1.1 Eliminar un pago existente
     if (post('accion') === 'eliminar') {
@@ -222,6 +226,7 @@ if ($accion === 'formulario'):
     <?php endif; ?>
 
     <form method="post" class="tarjeta formulario">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_pago" value="<?= h($datos['id_pago']) ?>">
         <input type="hidden" name="volver" value="<?= h($volver) ?>">
@@ -271,6 +276,7 @@ if ($accion === 'formulario'):
 
     <?php if ($datos['id_pago'] !== '' && !$venta_cerrada): ?>
         <form method="post" onsubmit="return confirm(<?= js('¿Eliminar el pago #' . $datos['id_pago'] . '?') ?>)">
+            <?= csrf_campo() ?>
             <input type="hidden" name="accion" value="eliminar">
             <input type="hidden" name="id_pago" value="<?= h($datos['id_pago']) ?>">
             <input type="hidden" name="volver" value="<?= h($volver) ?>">

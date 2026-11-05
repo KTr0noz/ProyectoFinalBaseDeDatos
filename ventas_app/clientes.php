@@ -36,6 +36,10 @@ $datos   = array(
  * ============================================================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir('clientes.php');
+    }
 
     // 1.1 Eliminar cliente
     if (post('accion') === 'eliminar') {
@@ -154,6 +158,7 @@ if ($accion === 'formulario'):
     <?php endif; ?>
 
     <form method="post" class="tarjeta formulario">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="original" value="<?= h($datos['original']) ?>">
 
@@ -271,6 +276,7 @@ if ($accion === 'formulario'):
                                 <a class="boton secundario chico" href="clientes.php?accion=editar&id=<?= $c['id_cliente'] ?>">Editar</a>
                                 <?php if ($c['rol'] !== 'admin'): ?>
                                     <form method="post" onsubmit="return confirm(<?= js('¿Eliminar al cliente ' . $c['nombre'] . ' ' . $c['apellido'] . '?') ?>)">
+                                        <?= csrf_campo() ?>
                                         <input type="hidden" name="accion" value="eliminar">
                                         <input type="hidden" name="id_cliente" value="<?= $c['id_cliente'] ?>">
                                         <button class="boton peligro chico">Eliminar</button>

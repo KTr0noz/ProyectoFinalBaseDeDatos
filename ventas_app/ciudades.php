@@ -28,6 +28,10 @@ $datos   = array(
  * ============================================================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir('ciudades.php');
+    }
 
     // 1.1 Eliminar ciudad
     if (post('accion') === 'eliminar') {
@@ -122,6 +126,7 @@ if ($accion === 'formulario'): ?>
     <?php mostrar_errores($errores); ?>
 
     <form method="post" class="tarjeta formulario">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_ciudad" value="<?= h($datos['id_ciudad']) ?>">
 
@@ -202,6 +207,7 @@ if ($accion === 'formulario'): ?>
                             <td class="acciones">
                                 <a class="boton secundario chico" href="ciudades.php?accion=editar&id=<?= $c['id_ciudad'] ?>">Editar</a>
                                 <form method="post" onsubmit="return confirm(<?= js('¿Eliminar la ciudad ' . $c['nombre'] . '?') ?>)">
+                                    <?= csrf_campo() ?>
                                     <input type="hidden" name="accion" value="eliminar">
                                     <input type="hidden" name="id_ciudad" value="<?= $c['id_ciudad'] ?>">
                                     <button class="boton peligro chico">Eliminar</button>

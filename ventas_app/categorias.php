@@ -27,6 +27,10 @@ $datos   = array(
  * ============================================================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir('categorias.php');
+    }
 
     // 1.1 Eliminar categoría
     if (post('accion') === 'eliminar') {
@@ -104,6 +108,7 @@ if ($accion === 'formulario'): ?>
     <?php mostrar_errores($errores); ?>
 
     <form method="post" class="tarjeta formulario">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_categoria" value="<?= h($datos['id_categoria']) ?>">
 
@@ -163,6 +168,7 @@ if ($accion === 'formulario'): ?>
                         <td class="acciones">
                             <a class="boton secundario chico" href="categorias.php?accion=editar&id=<?= $c['id_categoria'] ?>">Editar</a>
                             <form method="post" onsubmit="return confirm(<?= js('¿Eliminar la categoría ' . $c['nombre'] . '?') ?>)">
+                                <?= csrf_campo() ?>
                                 <input type="hidden" name="accion" value="eliminar">
                                 <input type="hidden" name="id_categoria" value="<?= $c['id_categoria'] ?>">
                                 <button class="boton peligro chico">Eliminar</button>

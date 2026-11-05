@@ -29,6 +29,10 @@ $datos   = array(
  * ============================================================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir('ventas.php');
+    }
 
     // 1.1 Eliminar una orden de venta
     if (post('accion') === 'eliminar') {
@@ -128,6 +132,7 @@ if ($accion === 'nueva'):
     <?php endif; ?>
 
     <form method="post" class="tarjeta formulario">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="guardar">
 
         <div class="completo">

@@ -20,6 +20,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!csrf_validar()) {
         $errores[] = 'La sesión del formulario expiró. Intente nuevamente.';
+    } elseif (login_bloqueado($email)) {
+        usleep(250000);
+        $errores[] = 'Demasiados intentos fallidos. Espere 5 minutos antes de intentar nuevamente.';
     } else {
         // Hash señuelo fijo para igualar el tiempo de cómputo cuando el correo no existe o no tiene clave.
         $hash_relleno = '$2y$10$usesomesillystringfore7hnbRJHxXVLeakoG8K30oukPsA.ztMG';
@@ -43,10 +46,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             : false;
 
         if ($cliente && !empty($cliente['password_hash']) && $verificado) {
+            registrar_intento_login($email, true);
             iniciar_sesion_usuario($cliente['id_cliente'], $cliente['rol']);
             redirigir($cliente['rol'] === 'admin' ? 'index.php' : 'tienda.php');
         }
 
+        registrar_intento_login($email, false);
         usleep(250000);
         $errores[] = 'Correo o contraseña incorrectos.';
     }

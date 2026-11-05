@@ -56,6 +56,7 @@ $pdo = db();
 
 try {
     $pdo->beginTransaction();
+    $pdo->exec('SET ROLE rol_admin');
 
     $ciudad = fila(
         'SELECT id_ciudad FROM ciudad WHERE LOWER(nombre) = LOWER(?) LIMIT 1',

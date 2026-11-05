@@ -31,6 +31,10 @@ $errores  = array();
  * ============================================================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir('venta.php?id=' . $id);
+    }
     $accion = post('accion');
 
     // 1.1 Actualizar seguimiento (estado y dirección de envío)
@@ -207,6 +211,7 @@ include 'includes/encabezado.php';
     </div>
 
     <form method="post" action="ventas.php" onsubmit="return confirm(<?= js('¿Eliminar la venta #' . $id . '? Sus artículos vuelven al inventario.') ?>)">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="eliminar">
         <input type="hidden" name="id_venta" value="<?= $id ?>">
         <button class="boton peligro">Eliminar venta</button>
@@ -274,6 +279,7 @@ include 'includes/encabezado.php';
                         <td class="acciones">
                             <?php if ($editable): ?>
                                 <form method="post" onsubmit="return confirm(<?= js('¿Quitar ' . $l['nombre'] . ' de la venta?') ?>)">
+                                    <?= csrf_campo() ?>
                                     <input type="hidden" name="accion" value="quitar">
                                     <input type="hidden" name="id_articulo" value="<?= $l['id_articulo'] ?>">
                                     <button class="boton peligro chico">Quitar</button>
@@ -301,6 +307,7 @@ include 'includes/encabezado.php';
 
     <?php if ($editable): ?>
         <form method="post" class="en-linea" style="margin-top:16px">
+            <?= csrf_campo() ?>
             <input type="hidden" name="accion" value="agregar">
             <div>
                 <label for="id_articulo">Agregar artículo</label>
@@ -375,6 +382,7 @@ include 'includes/encabezado.php';
     <h2>Actualizar seguimiento</h2>
 
     <form method="post" class="formulario">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="actualizar">
 
         <div>

@@ -32,6 +32,10 @@ $datos   = array(
  * ============================================================================ */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir('articulos.php');
+    }
 
     // 1.1 Eliminar artículo
     if (post('accion') === 'eliminar') {
@@ -140,6 +144,7 @@ if ($accion === 'formulario'): ?>
     <?php endif; ?>
 
     <form method="post" class="tarjeta formulario">
+        <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_articulo" value="<?= h($datos['id_articulo']) ?>">
 
@@ -250,6 +255,7 @@ if ($accion === 'formulario'): ?>
                             <td class="acciones">
                                 <a class="boton secundario chico" href="articulos.php?accion=editar&id=<?= $a['id_articulo'] ?>">Editar</a>
                                 <form method="post" onsubmit="return confirm(<?= js('¿Eliminar el artículo ' . $a['nombre'] . '?') ?>)">
+                                    <?= csrf_campo() ?>
                                     <input type="hidden" name="accion" value="eliminar">
                                     <input type="hidden" name="id_articulo" value="<?= $a['id_articulo'] ?>">
                                     <button class="boton peligro chico">Eliminar</button>
