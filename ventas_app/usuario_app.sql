@@ -21,3 +21,11 @@ GRANT CONNECT ON DATABASE proyecto TO app_ventas;
 GRANT USAGE ON SCHEMA public TO app_ventas;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_ventas;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_ventas;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rol_visitante') THEN
+        GRANT rol_visitante, rol_cliente, rol_admin TO app_ventas;
+    END IF;
+END
+$$;
