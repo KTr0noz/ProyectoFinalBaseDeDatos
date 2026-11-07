@@ -61,11 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirigir('carrito.php');
         }
 
-        $_SESSION['aviso_carrito'] = array(
-            'nombre'   => $art['nombre'],
-            'cantidad' => (int)$cantidad_txt,
-            'volver'   => $volver,
-        );
+        flash('ok', $art['nombre'] . ' agregado al carrito.');
         redirigir($volver);
     }
 
