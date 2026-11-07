@@ -33,6 +33,9 @@ if ($cat !== '') {
 
 $articulos = filas($sql . ' ORDER BY a.nombre', $params);
 
+$filtros_actuales = array_filter(array('q' => $q, 'categoria' => $cat), 'strlen');
+$volver = 'tienda.php' . ($filtros_actuales ? '?' . http_build_query($filtros_actuales) : '');
+
 $titulo = 'Tienda';
 $activo = 'tienda.php';
 include 'includes/encabezado_tienda.php';
@@ -47,15 +50,22 @@ include 'includes/encabezado_tienda.php';
 
 <form class="filtros" method="get" action="tienda.php">
     <input name="q" placeholder="Buscar artículo por nombre o descripción" value="<?= h($q) ?>">
-    <select name="categoria">
-        <option value="">Todas las categorías</option>
-        <?= opciones($categorias, $cat) ?>
-    </select>
-    <button class="boton secundario">Filtrar</button>
+    <?php if ($cat !== ''): ?>
+        <input type="hidden" name="categoria" value="<?= h($cat) ?>">
+    <?php endif; ?>
+    <button class="boton secundario">Buscar</button>
     <?php if ($q !== '' || $cat !== ''): ?>
         <a class="boton secundario" href="tienda.php">Limpiar</a>
     <?php endif; ?>
 </form>
+
+<nav class="categorias-tienda" aria-label="Filtrar por categoría">
+    <?php $base_q = $q !== '' ? array('q' => $q) : array(); ?>
+    <a href="tienda.php<?= $base_q ? '?' . h(http_build_query($base_q)) : '' ?>"<?= $cat === '' ? ' class="activo" aria-current="page"' : '' ?>>Todas</a>
+    <?php foreach ($categorias as $id_cat => $nombre_cat): ?>
+        <a href="tienda.php?<?= h(http_build_query($base_q + array('categoria' => $id_cat))) ?>"<?= (string)$cat === (string)$id_cat ? ' class="activo" aria-current="page"' : '' ?>><?= h($nombre_cat) ?></a>
+    <?php endforeach; ?>
+</nav>
 
 <?php if ($articulos): ?>
     <div class="grilla-tienda">
@@ -91,6 +101,7 @@ include 'includes/encabezado_tienda.php';
                             <input type="hidden" name="accion" value="agregar">
                             <input type="hidden" name="id_articulo" value="<?= $a['id_articulo'] ?>">
                             <input type="hidden" name="cantidad" value="1">
+                            <input type="hidden" name="volver" value="<?= h($volver) ?>">
                             <button class="boton chico">Agregar al carrito</button>
                         </form>
                     </div>

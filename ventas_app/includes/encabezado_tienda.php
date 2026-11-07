@@ -7,6 +7,12 @@ if (!empty($_SESSION['carrito']) && is_array($_SESSION['carrito'])) {
         $unidades_carrito += (int)$cant_item;
     }
 }
+
+$aviso_carrito = isset($_SESSION['aviso_carrito']) ? $_SESSION['aviso_carrito'] : null;
+unset($_SESSION['aviso_carrito']);
+
+// carrito.php lo pone en true cuando se pide confirmar "Vaciar carrito".
+$confirmar_vaciar = !empty($confirmar_vaciar);
 ?><!doctype html>
 <html lang="es">
 <head>
@@ -18,6 +24,40 @@ if (!empty($_SESSION['carrito']) && is_array($_SESSION['carrito'])) {
 </head>
 <body>
 <a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<?php if ($aviso_carrito): ?>
+    <div class="velo">
+        <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="aviso-carrito-titulo">
+            <h2 id="aviso-carrito-titulo">Agregado al carrito</h2>
+            <p>
+                <?= h($aviso_carrito['nombre']) ?>
+                (<?= $aviso_carrito['cantidad'] ?> <?= $aviso_carrito['cantidad'] === 1 ? 'unidad' : 'unidades' ?>).
+                Tienes <?= $unidades_carrito ?> <?= $unidades_carrito === 1 ? 'unidad' : 'unidades' ?> en el carrito.
+            </p>
+            <div class="dialogo-botones">
+                <a class="boton secundario" href="<?= h($aviso_carrito['volver']) ?>">Seguir comprando</a>
+                <a class="boton" href="carrito.php">Ir al carrito</a>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if ($confirmar_vaciar): ?>
+    <div class="velo">
+        <div class="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="vaciar-titulo">
+            <h2 id="vaciar-titulo">¿Vaciar el carrito?</h2>
+            <p>Se quitarán todos los artículos del carrito.</p>
+            <div class="dialogo-botones">
+                <a class="boton secundario" href="carrito.php">Cancelar</a>
+                <form method="post" action="carrito.php">
+                    <?= csrf_campo() ?>
+                    <input type="hidden" name="accion" value="vaciar">
+                    <button class="boton peligro">Vaciar carrito</button>
+                </form>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
 
 <div class="app-tienda">
     <header class="barra-tienda">
@@ -50,3 +90,4 @@ if (!empty($_SESSION['carrito']) && is_array($_SESSION['carrito'])) {
     <div class="columna">
         <main class="contenido contenido-tienda" id="contenido">
             <?php mostrar_flash(); ?>
+

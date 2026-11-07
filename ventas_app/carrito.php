@@ -54,8 +54,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $_SESSION['carrito'][$id_articulo] = $nueva;
-        flash('ok', $art['nombre'] . ' agregado al carrito.');
-        redirigir('carrito.php');
+
+        $volver = post('volver');
+        if (!preg_match('/^(tienda\.php(\?[A-Za-z0-9_=&%+.\-]*)?|articulo\.php\?id=\d+)$/', $volver)) {
+            flash('ok', $art['nombre'] . ' agregado al carrito.');
+            redirigir('carrito.php');
+        }
+
+        $_SESSION['aviso_carrito'] = array(
+            'nombre'   => $art['nombre'],
+            'cantidad' => (int)$cantidad_txt,
+            'volver'   => $volver,
+        );
+        redirigir($volver);
     }
 
     if ($accion === 'actualizar_linea') {
@@ -203,6 +214,8 @@ foreach ($_SESSION['carrito'] as $id_art => $cant) {
     );
 }
 
+$confirmar_vaciar = $lineas_carrito && get('vaciar') === 'confirmar';
+
 $titulo = 'Carrito de compras';
 $activo = 'carrito.php';
 include 'includes/encabezado_tienda.php';
@@ -214,11 +227,7 @@ include 'includes/encabezado_tienda.php';
         <p class="subtitulo">Revisa las unidades y confirma tu pedido.</p>
     </div>
     <?php if ($lineas_carrito): ?>
-        <form method="post" onsubmit="return confirm('¿Vaciar todos los artículos del carrito?')">
-            <?= csrf_campo() ?>
-            <input type="hidden" name="accion" value="vaciar">
-            <button class="boton secundario chico">Vaciar carrito</button>
-        </form>
+        <a class="boton secundario chico" href="carrito.php?vaciar=confirmar">Vaciar carrito</a>
     <?php endif; ?>
 </div>
 

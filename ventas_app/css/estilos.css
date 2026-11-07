@@ -1311,3 +1311,74 @@ td.fecha {
         min-height: var(--toque);
     }
 }
+
+/* ============================================================================
+ * 16. Tienda: avisos (artículo agregado y confirmar vaciar) y categorías
+ *     Sin JavaScript: el aviso lo pinta PHP y los botones son enlaces.
+ * ============================================================================ */
+:root {
+    --velo: rgba(22, 24, 28, 0.45);
+    --dialogo-ancho: 420px;
+}
+
+.dialogo {
+    width: min(var(--dialogo-ancho), calc(100vw - var(--e8)));
+    padding: var(--e6);
+    border: 1px solid var(--linea-fuerte);
+    border-radius: var(--r-md);
+    background: var(--superficie);
+    color: var(--tinta);
+    animation: aviso-entra var(--t-aviso) var(--curva) both;
+}
+.velo {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: var(--e4);
+    background: var(--velo);
+}
+.dialogo h2 {
+    margin-bottom: var(--e2);
+}
+.dialogo p {
+    margin: 0 0 var(--e4);
+    font-size: var(--f-control);
+    color: var(--suave);
+}
+.dialogo-botones {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--e2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dialogo {
+        animation-name: aviso-fundido;
+    }
+}
+
+.categorias-tienda {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e2);
+    margin-bottom: var(--e4);
+}
+.categorias-tienda a {
+    padding: var(--e1) var(--e3);
+    border: 1px solid var(--linea-fuerte);
+    border-radius: var(--r-md);
+    color: var(--tinta);
+    font-size: var(--f-control);
+    text-decoration: none;
+}
+.categorias-tienda a:hover {
+    background: var(--fondo);
+}
+.categorias-tienda a.activo {
+    background: var(--tinta);
+    border-color: var(--tinta);
+    color: var(--superficie);
+}

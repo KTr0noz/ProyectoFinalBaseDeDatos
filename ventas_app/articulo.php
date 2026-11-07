@@ -72,6 +72,7 @@ include 'includes/encabezado_tienda.php';
                 <?= csrf_campo() ?>
                 <input type="hidden" name="accion" value="agregar">
                 <input type="hidden" name="id_articulo" value="<?= $articulo['id_articulo'] ?>">
+                <input type="hidden" name="volver" value="articulo.php?id=<?= $articulo['id_articulo'] ?>">
 
                 <div>
                     <label for="cantidad">Cantidad</label>
