@@ -7,9 +7,6 @@ if (!empty($_SESSION['carrito']) && is_array($_SESSION['carrito'])) {
         $unidades_carrito += (int)$cant_item;
     }
 }
-
-// carrito.php lo pone en true cuando se pide confirmar "Vaciar carrito".
-$confirmar_vaciar = !empty($confirmar_vaciar);
 ?><!doctype html>
 <html lang="es">
 <head>
@@ -21,24 +18,6 @@ $confirmar_vaciar = !empty($confirmar_vaciar);
 </head>
 <body>
 <a class="saltar" href="#contenido">Saltar al contenido</a>
-
-<?php if ($confirmar_vaciar): ?>
-    <div class="velo">
-        <div class="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="vaciar-titulo">
-            <h2 id="vaciar-titulo">¿Vaciar el carrito?</h2>
-            <p>Se quitarán todos los artículos del carrito.</p>
-            <div class="dialogo-botones">
-                <a class="boton secundario" href="carrito.php">Cancelar</a>
-                <form method="post" action="carrito.php">
-                    <?= csrf_campo() ?>
-                    <input type="hidden" name="accion" value="vaciar">
-                    <button class="boton peligro">Vaciar carrito</button>
-                </form>
-            </div>
-        </div>
-    </div>
-<?php endif; ?>
-
 <div class="app-tienda">
     <header class="barra-tienda">
         <div class="barra-tienda-interior">

@@ -210,8 +210,6 @@ foreach ($_SESSION['carrito'] as $id_art => $cant) {
     );
 }
 
-$confirmar_vaciar = $lineas_carrito && get('vaciar') === 'confirmar';
-
 $titulo = 'Carrito de compras';
 $activo = 'carrito.php';
 include 'includes/encabezado_tienda.php';
@@ -223,7 +221,11 @@ include 'includes/encabezado_tienda.php';
         <p class="subtitulo">Revisa las unidades y confirma tu pedido.</p>
     </div>
     <?php if ($lineas_carrito): ?>
-        <a class="boton secundario chico" href="carrito.php?vaciar=confirmar">Vaciar carrito</a>
+        <form method="post">
+            <?= csrf_campo() ?>
+            <input type="hidden" name="accion" value="vaciar">
+            <button class="boton secundario chico">Vaciar carrito</button>
+        </form>
     <?php endif; ?>
 </div>
 
