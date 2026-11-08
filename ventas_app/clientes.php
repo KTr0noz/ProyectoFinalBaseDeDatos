@@ -1,18 +1,9 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/clientes.php
- * DESCRIPCIÓN:
- *   Módulo de clientes compradores (`cliente`):
- *     - Permite listar, buscar, registrar, editar y eliminar clientes.
- *     - Reglas de integridad en PostgreSQL:
- *         * `id_cliente > 0` (`ck_cliente_id`).
- *         * `email` único (`uq_cliente_email`).
- *         * `ON UPDATE CASCADE` en `fk_venta_cliente`: si se corrige la cédula
- *           de un cliente, sus ventas asociadas se actualizan automáticamente.
- *         * `ON DELETE RESTRICT` en `fk_venta_cliente`: impide eliminar clientes
- *           que ya tienen historial de ventas.
- * ============================================================================
+ * Clientes (tabla cliente): listar, buscar, crear, editar y eliminar.
+ *   - La cédula es la llave primaria. Si se cambia, sus ventas la siguen (ON UPDATE CASCADE).
+ *   - La base no deja repetir cédula ni correo, ni borrar un cliente con ventas (ON DELETE RESTRICT).
+ *   - Las cuentas de administrador no se pueden borrar desde aquí.
  */
 
 require_once 'includes/funciones.php';
@@ -20,87 +11,39 @@ require_admin();
 
 $accion  = get('accion');
 $errores = array();
-$datos   = array(
-    'original'   => '',
-    'id_cliente' => '',
-    'nombre'     => '',
-    'apellido'   => '',
-    'email'      => '',
-    'telefono'   => '',
-    'direccion'  => '',
-    'id_ciudad'  => '',
-);
+$datos   = array('original' => '', 'id_cliente' => '', 'nombre' => '', 'apellido' => '',
+                 'email' => '', 'telefono' => '', 'direccion' => '', 'id_ciudad' => '');
 
-/* ============================================================================
- * 1. PROCESAMIENTO DE FORMULARIOS (POST: ELIMINAR, CREAR O EDITAR CLIENTE)
- * ============================================================================ */
-
+// ---------- Formularios enviados ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_validar()) {
-        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
-        redirigir('clientes.php');
-    }
+    exigir_csrf('clientes.php');
 
-    // 1.1 Eliminar cliente
     if (post('accion') === 'eliminar') {
-        $id_eliminar = (int)post('id_cliente');
-        $objetivo    = fila('SELECT rol FROM cliente WHERE id_cliente = ?', array($id_eliminar));
-
-        if ($objetivo && $objetivo['rol'] === 'admin') {
+        $id = (int)post('id_cliente');
+        if (valor('SELECT rol FROM cliente WHERE id_cliente = ?', array($id)) === 'admin') {
             flash('error', 'No se puede eliminar una cuenta de administrador.');
             redirigir('clientes.php');
         }
-
-        try {
-            consulta('DELETE FROM cliente WHERE id_cliente = ?', array($id_eliminar));
-            flash('ok', 'Cliente eliminado.');
-        } catch (PDOException $e) {
-            flash('error', mensaje_error_bd($e));
-        }
-        redirigir('clientes.php');
+        eliminar_y_volver('DELETE FROM cliente WHERE id_cliente = ?', $id, 'Cliente eliminado.', 'clientes.php');
     }
 
-    // 1.2 Crear o actualizar cliente
-    $datos = array(
-        'original'   => post('original'),
-        'id_cliente' => post('id_cliente'),
-        'nombre'     => post('nombre'),
-        'apellido'   => post('apellido'),
-        'email'      => mb_strtolower(post('email'), 'UTF-8'),
-        'telefono'   => post('telefono'),
-        'direccion'  => post('direccion'),
-        'id_ciudad'  => post('id_ciudad'),
-    );
-
+    // Guardar. "original" es la cédula antes de editar (vacía si es un cliente nuevo).
+    $datos = datos_cliente_del_formulario() + array('original' => post('original'));
     validar_datos_cliente($datos, $errores);
 
     if (!$errores) {
-        $params = array(
-            (int)$datos['id_cliente'],
-            $datos['nombre'],
-            $datos['apellido'],
-            $datos['email'],
-            $datos['telefono'],
-            $datos['direccion'],
-            (int)$datos['id_ciudad'],
-        );
-
+        $params = array((int)$datos['id_cliente'], $datos['nombre'], $datos['apellido'], $datos['email'],
+                        $datos['telefono'], $datos['direccion'], (int)$datos['id_ciudad']);
         try {
             if ($datos['original'] === '') {
-                consulta(
-                    'INSERT INTO cliente (id_cliente, nombre, apellido, email, telefono, direccion, id_ciudad)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    $params
-                );
+                consulta('INSERT INTO cliente (id_cliente, nombre, apellido, email, telefono, direccion, id_ciudad)
+                          VALUES (?, ?, ?, ?, ?, ?, ?)', $params);
                 flash('ok', 'Cliente registrado.');
             } else {
                 $params[] = (int)$datos['original'];
-                consulta(
-                    'UPDATE cliente
-                     SET id_cliente = ?, nombre = ?, apellido = ?, email = ?, telefono = ?, direccion = ?, id_ciudad = ?
-                     WHERE id_cliente = ?',
-                    $params
-                );
+                consulta('UPDATE cliente
+                          SET id_cliente = ?, nombre = ?, apellido = ?, email = ?, telefono = ?, direccion = ?, id_ciudad = ?
+                          WHERE id_cliente = ?', $params);
                 flash('ok', 'Cliente actualizado.');
             }
             redirigir('clientes.php');
@@ -108,29 +51,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errores[] = mensaje_error_bd($e);
         }
     }
-
     $accion = 'formulario';
 }
 
-/* ============================================================================
- * 2. PREPARACIÓN Y RENDERIZADO DE VISTAS
- * ============================================================================ */
-
 if ($accion === 'editar') {
-    $datos = fila(
-        'SELECT id_cliente, nombre, apellido, email, telefono, direccion, id_ciudad, rol
-         FROM cliente
-         WHERE id_cliente = ?',
-        array((int)get('id'))
+    $datos = buscar_o_volver(
+        'SELECT id_cliente, nombre, apellido, email, telefono, direccion, id_ciudad FROM cliente WHERE id_cliente = ?',
+        (int)get('id'), 'El cliente no existe.', 'clientes.php'
     );
-    if (!$datos) {
-        flash('error', 'El cliente no existe.');
-        redirigir('clientes.php');
-    }
     $datos['original'] = $datos['id_cliente'];
     $accion = 'formulario';
 }
-
 if ($accion === 'nuevo') {
     $accion = 'formulario';
 }
@@ -139,11 +70,9 @@ $titulo = 'Clientes';
 $activo = 'clientes.php';
 include 'includes/encabezado.php';
 
+// ---------- Formulario de nuevo / editar ----------
 if ($accion === 'formulario'):
-    $ciudades = array();
-    foreach (filas('SELECT id_ciudad, nombre, departamento FROM ciudad ORDER BY nombre') as $c) {
-        $ciudades[$c['id_ciudad']] = $c['nombre'] . ' (' . $c['departamento'] . ')';
-    }
+    $ciudades = lista_ciudades();
 ?>
     <div class="encabezado">
         <h1><?= $datos['original'] === '' ? 'Nuevo cliente' : 'Editar cliente' ?></h1>
@@ -152,14 +81,11 @@ if ($accion === 'formulario'):
     <?php mostrar_errores($errores); ?>
 
     <?php if (!$ciudades): ?>
-        <div class="alerta alerta-info">
-            Primero registre al menos una <a href="ciudades.php?accion=nueva">ciudad</a>.
-        </div>
+        <div class="alerta alerta-info">Primero registre al menos una <a href="ciudades.php?accion=nueva">ciudad</a>.</div>
     <?php endif; ?>
 
     <form method="post" class="tarjeta formulario">
         <?= csrf_campo() ?>
-        <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="original" value="<?= h($datos['original']) ?>">
 
         <div>
@@ -208,24 +134,15 @@ if ($accion === 'formulario'):
     </form>
 
 <?php else:
+    // ---------- Lista con búsqueda por nombre, correo o cédula ----------
     $q = get('q');
     $lista = filas(
-        "SELECT
-             c.id_cliente,
-             c.nombre,
-             c.apellido,
-             c.email,
-             c.telefono,
-             c.direccion,
-             c.id_ciudad,
-             c.rol,
-             ci.nombre AS ciudad,
-             (SELECT COUNT(*) FROM venta v WHERE v.id_cliente = c.id_cliente) AS ventas
+        "SELECT c.id_cliente, c.nombre, c.apellido, c.email, c.telefono, c.direccion, c.rol,
+                ci.nombre AS ciudad,
+                (SELECT COUNT(*) FROM venta v WHERE v.id_cliente = c.id_cliente) AS ventas
          FROM cliente c
          JOIN ciudad ci ON ci.id_ciudad = c.id_ciudad
-         WHERE c.nombre || ' ' || c.apellido ILIKE ?
-            OR c.email ILIKE ?
-            OR CAST(c.id_cliente AS TEXT) LIKE ?
+         WHERE c.nombre || ' ' || c.apellido ILIKE ? OR c.email ILIKE ? OR CAST(c.id_cliente AS TEXT) LIKE ?
          ORDER BY c.apellido, c.nombre",
         array("%$q%", "%$q%", "%$q%")
     );
@@ -257,39 +174,24 @@ if ($accion === 'formulario'):
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($lista as $c): ?>
+                    <?php foreach ($lista as $c): $nombre = $c['nombre'] . ' ' . $c['apellido']; ?>
                         <tr>
                             <td><?= $c['id_cliente'] ?></td>
-                            <td>
-                                <?= h($c['nombre'] . ' ' . $c['apellido']) ?>
-                                <div class="ayuda"><?= h($c['direccion']) ?></div>
-                            </td>
-                            <td>
-                                <?= h($c['email']) ?>
-                                <div class="ayuda"><?= h($c['telefono']) ?></div>
-                            </td>
+                            <td><?= h($nombre) ?><div class="ayuda"><?= h($c['direccion']) ?></div></td>
+                            <td><?= h($c['email']) ?><div class="ayuda"><?= h($c['telefono']) ?></div></td>
                             <td><?= h($c['ciudad']) ?></td>
-                            <td class="num">
-                                <a href="ventas.php?q=<?= $c['id_cliente'] ?>"><?= $c['ventas'] ?></a>
-                            </td>
+                            <td class="num"><a href="ventas.php?q=<?= $c['id_cliente'] ?>"><?= $c['ventas'] ?></a></td>
                             <td class="acciones">
                                 <a class="boton secundario chico" href="clientes.php?accion=editar&id=<?= $c['id_cliente'] ?>">Editar</a>
                                 <?php if ($c['rol'] !== 'admin'): ?>
-                                    <form method="post" onsubmit="return confirm(<?= js('¿Eliminar al cliente ' . $c['nombre'] . ' ' . $c['apellido'] . '?') ?>)">
-                                        <?= csrf_campo() ?>
-                                        <input type="hidden" name="accion" value="eliminar">
-                                        <input type="hidden" name="id_cliente" value="<?= $c['id_cliente'] ?>">
-                                        <button class="boton peligro chico">Eliminar</button>
-                                    </form>
+                                    <?= boton_post(array('accion' => 'eliminar', 'id_cliente' => $c['id_cliente']), '¿Eliminar al cliente ' . $nombre . '?') ?>
                                 <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
 
                     <?php if (!$lista): ?>
-                        <tr>
-                            <td colspan="6" class="vacio">No hay clientes que coincidan.</td>
-                        </tr>
+                        <tr><td colspan="6" class="vacio">No hay clientes que coincidan.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>

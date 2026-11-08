@@ -1,52 +1,27 @@
 <?php
+/**
+ * Mis compras: historial del cliente y detalle de una compra (?id=).
+ * Solo muestra ventas del cliente en sesión; además, la política RLS de PostgreSQL
+ * (pol_venta_cliente) no le deja ver ventas de otros.
+ */
 
 require_once 'includes/funciones.php';
 require_cliente();
 
-$id_cliente  = (int)$_SESSION['id_cliente'];
-$id_consulta = get('id');
-$detalle     = null;
-$lineas      = array();
-$pagos       = array();
+$id_cliente = (int)$_SESSION['id_cliente'];
+$detalle    = null;
 
-if ($id_consulta !== '') {
-    $detalle = fila(
-        sql_ventas() . ' WHERE v.id_venta = ? AND v.id_cliente = ?',
-        array((int)$id_consulta, $id_cliente)
-    );
-
+if (get('id') !== '') {
+    $detalle = fila(sql_ventas() . ' WHERE v.id_venta = ? AND v.id_cliente = ?', array((int)get('id'), $id_cliente));
     if (!$detalle) {
         flash('error', 'La compra solicitada no existe en tu cuenta.');
         redirigir('mis_compras.php');
     }
-
-    $lineas = filas(
-        'SELECT
-             d.id_articulo,
-             d.cantidad,
-             a.nombre,
-             a.precio,
-             (d.cantidad * a.precio) AS subtotal
-         FROM detalle_venta d
-         JOIN articulo a ON a.id_articulo = d.id_articulo
-         WHERE d.id_venta = ?
-         ORDER BY a.nombre',
-        array((int)$detalle['id_venta'])
-    );
-
-    $pagos = filas(
-        'SELECT id_pago, tipo, monto, fecha_pago, estado
-         FROM forma_pago
-         WHERE id_venta = ?
-         ORDER BY fecha_pago, id_pago',
-        array((int)$detalle['id_venta'])
-    );
+    $lineas = lineas_venta($detalle['id_venta']);
+    $pagos  = pagos_venta($detalle['id_venta']);
 }
 
-$compras = filas(
-    sql_ventas() . ' WHERE v.id_cliente = ? ORDER BY v.fecha DESC, v.id_venta DESC',
-    array($id_cliente)
-);
+$compras = filas(sql_ventas() . ' WHERE v.id_cliente = ? ORDER BY v.fecha DESC, v.id_venta DESC', array($id_cliente));
 
 $titulo = $detalle ? 'Compra #' . $detalle['id_venta'] : 'Mis compras';
 $activo = 'mis_compras.php';
@@ -195,9 +170,7 @@ if ($detalle):
                     <?php endforeach; ?>
 
                     <?php if (!$compras): ?>
-                        <tr>
-                            <td colspan="8" class="vacio">Aún no has realizado compras.</td>
-                        </tr>
+                        <tr><td colspan="8" class="vacio">Aún no has realizado compras.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>

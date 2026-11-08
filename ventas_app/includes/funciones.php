@@ -1,93 +1,63 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/includes/funciones.php
- * DESCRIPCIÓN:
- *   Funciones compartidas por toda la aplicación:
- *     1. Respaldo de funciones multibyte (mbstring).
- *     2. Constantes de negocio y estados permitidos (alineados con los CHECK).
- *     3. Utilidades de formato y salida segura (prevención de XSS).
- *     4. Validación de formularios del lado del servidor.
- *     5. Traducción de errores SQLSTATE de PostgreSQL a mensajes en español.
- *     6. Sincronización automática del estado de la venta y consulta 3FN.
- * ============================================================================
+ * Funciones que usan todas las páginas. Cada página empieza con:
+ *     require_once 'includes/funciones.php';
+ * y eso también abre la sesión, carga config.php, la conexión (db.php) y el login (auth.php).
+ *
+ * Secciones:
+ *   1. Sesión y archivos que se cargan
+ *   2. Listas fijas del negocio (iguales a los CHECK de PostgreSQL)
+ *   3. Formato y salida segura en HTML
+ *   4. Formularios: leer datos, validar y botones repetidos
+ *   5. Errores de PostgreSQL traducidos a mensajes claros
+ *   6. Ventas: consulta con totales, pagos y stock
+ *   7. Imágenes de artículos
  */
 
-if (session_status() === PHP_SESSION_NONE) {
+/* ============================================================================
+ * 1. SESIÓN Y ARCHIVOS QUE SE CARGAN
+ * ============================================================================ */
+
+if (session_status() === PHP_SESSION_NONE && PHP_SAPI !== 'cli') {
+    $es_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
-
-    $es_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string)$_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
-
-    if (PHP_SAPI !== 'cli') {
-        session_set_cookie_params(array(
-            'lifetime' => 0,
-            'path'     => '/',
-            'domain'   => '',
-            'secure'   => $es_https,
-            'httponly' => true,
-            'samesite' => 'Lax',
-        ));
-        session_start();
-    }
+    session_set_cookie_params(array(
+        'lifetime' => 0,
+        'path'     => '/',
+        'secure'   => $es_https,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ));
+    session_start();
 }
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/db.php';
 
-/* ============================================================================
- * 1. RESPALDO MULTIBYTE (por si el entorno PHP no tiene la extensión mbstring)
- * ============================================================================ */
-
+// Respaldo por si el PHP del computador no tiene la extensión mbstring (acentos y ñ).
 if (!function_exists('mb_strlen')) {
-    function mb_strlen($texto, $codificacion = null)
-    {
-        return preg_match_all('/./us', (string)$texto);
-    }
-}
-
-if (!function_exists('mb_strtolower')) {
-    function mb_strtolower($texto, $codificacion = null)
-    {
-        return strtolower((string)$texto);
+    function mb_strlen($texto, $codificacion = null) { return preg_match_all('/./us', (string)$texto); }
+    function mb_strtolower($texto, $codificacion = null) { return strtolower((string)$texto); }
+    function mb_strtoupper($texto, $codificacion = null) { return strtoupper((string)$texto); }
+    function mb_substr($texto, $inicio, $largo = null, $codificacion = null) {
+        preg_match_all('/./us', (string)$texto, $letras);
+        return implode('', array_slice($letras[0], $inicio, $largo));
     }
 }
 
 /* ============================================================================
- * 2. REGLAS Y ESTADOS DEL NEGOCIO (idénticos a los CHECK de PostgreSQL)
+ * 2. LISTAS FIJAS DEL NEGOCIO (iguales a los CHECK de PostgreSQL)
  * ============================================================================ */
 
-$ESTADOS_VENTA = array(
-    'Pendiente',
-    'Pagada',
-    'Enviada',
-    'Entregada',
-    'Cancelada',
-);
+$ESTADOS_VENTA = array('Pendiente', 'Pagada', 'Enviada', 'Entregada', 'Cancelada');
+$TIPOS_PAGO    = array('PSE', 'Tarjeta Visa', 'Tarjeta Mastercard', 'Efecty', 'Transferencia Bancaria');
+$ESTADOS_PAGO  = array('Pendiente', 'Aprobado', 'Rechazado');
 
-$TIPOS_PAGO = array(
-    'PSE',
-    'Tarjeta Visa',
-    'Tarjeta Mastercard',
-    'Efecty',
-    'Transferencia Bancaria',
-);
-
-$ESTADOS_PAGO = array(
-    'Pendiente',
-    'Aprobado',
-    'Rechazado',
-);
-
-/**
- * Transiciones de estado permitidas en una orden de venta:
- *   - Pendiente -> Pagada o Cancelada
- *   - Pagada    -> Enviada o Cancelada
- *   - Enviada   -> Entregada
- *   - Entregada y Cancelada son estados finales.
- */
+// A qué estados puede pasar una venta desde cada estado. Entregada y Cancelada son finales.
 $TRANSICIONES_VENTA = array(
     'Pendiente' => array('Pagada', 'Cancelada'),
     'Pagada'    => array('Enviada', 'Cancelada'),
@@ -96,145 +66,233 @@ $TRANSICIONES_VENTA = array(
     'Cancelada' => array(),
 );
 
-// Estados en los cuales una venta permite registrar, editar o eliminar pagos
+// Estados de venta en los que todavía se pueden registrar, editar o borrar pagos.
 $VENTA_ACEPTA_PAGOS = array('Pendiente', 'Pagada');
 
 /* ============================================================================
- * 3. UTILIDADES DE SALIDA, FORMATO Y NAVEGACIÓN
+ * 3. FORMATO Y SALIDA SEGURA EN HTML
  * ============================================================================ */
 
-/** Escapa texto para imprimirlo de forma segura en HTML (evita XSS). */
+/** Escapa un texto antes de imprimirlo en HTML (evita inyectar código). */
 function h($texto)
 {
     return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8');
 }
 
-/** Convierte un texto en literal JSON seguro para atributos HTML (ej. confirm). */
-function js($texto)
-{
-    return h(json_encode((string)$texto, JSON_UNESCAPED_UNICODE));
-}
-
-/** Formatea un número en pesos colombianos: $2.350.000 */
+/** 2350000 -> "$2.350.000" */
 function dinero($valor)
 {
     return '$' . number_format((float)$valor, 0, ',', '.');
 }
 
-/** Convierte una fecha AAAA-MM-DD al formato legible DD/MM/AAAA. */
+/** "2026-11-08" -> "08/11/2026" */
 function fecha($valor)
 {
     $d = DateTime::createFromFormat('Y-m-d', substr((string)$valor, 0, 10));
     return $d ? $d->format('d/m/Y') : h($valor);
 }
 
-/** Redirige a otra URL y detiene la ejecución del script. */
+/** Color de la etiqueta de un estado de venta o de pago. */
+function clase_estado($estado)
+{
+    $colores = array(
+        'Pendiente' => 'gris',  'Pagada'    => 'azul',  'Enviada' => 'morado',
+        'Entregada' => 'verde', 'Cancelada' => 'rojo',
+        'Aprobado'  => 'verde', 'Rechazado' => 'rojo',
+    );
+    return $colores[$estado] ?? 'gris';
+}
+
+/** Etiqueta de color con el estado: <span class="etiqueta verde">Entregada</span> */
+function etiqueta_estado($estado)
+{
+    return '<span class="etiqueta ' . clase_estado($estado) . '">' . h($estado) . '</span>';
+}
+
+/** Va a otra página y termina este script. */
 function redirigir($url)
 {
     header('Location: ' . $url);
     exit;
 }
 
-/** Guarda un aviso temporal en sesión para mostrarlo en la siguiente pantalla. */
+/** Guarda un aviso para mostrarlo en la próxima página ($tipo: ok, error o info). */
 function flash($tipo, $mensaje)
 {
     $_SESSION['flash'][] = array($tipo, $mensaje);
 }
 
-/** Imprime y limpia los avisos temporales guardados en la sesión. */
+/** Imprime los avisos guardados con flash() y los borra. */
 function mostrar_flash()
 {
-    if (empty($_SESSION['flash'])) {
-        return;
-    }
-    foreach ($_SESSION['flash'] as $m) {
-        echo '<div class="alerta alerta-' . h($m[0]) . '">' . h($m[1]) . '</div>';
+    foreach ($_SESSION['flash'] ?? array() as $aviso) {
+        echo '<div class="alerta alerta-' . h($aviso[0]) . '">' . h($aviso[1]) . '</div>';
     }
     unset($_SESSION['flash']);
 }
 
-/** Muestra una lista de errores de validación de un formulario. */
+/** Imprime la lista de errores de un formulario. */
 function mostrar_errores($errores)
 {
     if (!$errores) {
         return;
     }
     echo '<div class="alerta alerta-error"><b>Revisa los datos:</b><ul>';
-    foreach ($errores as $e) {
-        echo '<li>' . h($e) . '</li>';
+    foreach ($errores as $error) {
+        echo '<li>' . h($error) . '</li>';
     }
     echo '</ul></div>';
 }
 
-/** Obtiene un campo enviado por POST limpio de espacios extremos. */
+/* ============================================================================
+ * 4. FORMULARIOS: LEER DATOS, VALIDAR Y BOTONES REPETIDOS
+ * ============================================================================ */
+
+/** Campo enviado por POST, sin espacios a los lados. */
 function post($clave, $defecto = '')
 {
     return isset($_POST[$clave]) ? trim((string)$_POST[$clave]) : $defecto;
 }
 
-/** Obtiene un parámetro enviado por GET limpio de espacios extremos. */
+/** Parámetro de la dirección (GET), sin espacios a los lados. */
 function get($clave, $defecto = '')
 {
     return isset($_GET[$clave]) ? trim((string)$_GET[$clave]) : $defecto;
 }
 
-/** Genera las etiquetas <option> a partir de un arreglo clave => texto. */
+/** Texto vacío -> NULL, para columnas opcionales como la descripción. */
+function nulo_si_vacio($texto)
+{
+    return $texto === '' ? null : $texto;
+}
+
+/**
+ * Revisa el token CSRF de un formulario enviado por POST.
+ * Si no es válido (formulario viejo o de otra página), vuelve a $volver con un aviso.
+ */
+function exigir_csrf($volver)
+{
+    if (!csrf_validar()) {
+        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
+        redirigir($volver);
+    }
+}
+
+/** <option> para un <select>, a partir de un arreglo valor => texto. */
 function opciones($opciones, $seleccionado)
 {
     $html = '';
     foreach ($opciones as $valor => $texto) {
-        $sel = ((string)$valor === (string)$seleccionado) ? ' selected' : '';
-        $html .= '<option value="' . h($valor) . '"' . $sel . '>' . h($texto) . '</option>';
+        $marcado = (string)$valor === (string)$seleccionado ? ' selected' : '';
+        $html .= '<option value="' . h($valor) . '"' . $marcado . '>' . h($texto) . '</option>';
     }
     return $html;
 }
 
-/** Genera las etiquetas <option> cuando el valor y el texto visible son iguales. */
+/** <option> cuando el valor y el texto son iguales (por ejemplo, los estados). */
 function opciones_simples($lista, $seleccionado)
 {
     return opciones(array_combine($lista, $lista), $seleccionado);
 }
 
-/** Devuelve el color semántico CSS asociado a un estado de venta o pago. */
-function clase_estado($estado)
+/** Arreglo id => texto para un <select>, desde una consulta de dos columnas. */
+function lista_opciones($sql)
 {
-    $mapa = array(
-        'Pendiente' => 'gris',
-        'Pagada'    => 'azul',
-        'Enviada'   => 'morado',
-        'Entregada' => 'verde',
-        'Cancelada' => 'rojo',
-        'Aprobado'  => 'verde',
-        'Rechazado' => 'rojo',
-    );
-    return isset($mapa[$estado]) ? $mapa[$estado] : 'gris';
+    $lista = array();
+    foreach (filas($sql) as $fila) {
+        list($id, $texto) = array_values($fila);
+        $lista[$id] = $texto;
+    }
+    return $lista;
 }
 
-/** Devuelve la píldora HTML coloreada para un estado de venta o pago. */
-function etiqueta_estado($estado)
+function lista_ciudades()
 {
-    return '<span class="etiqueta ' . clase_estado($estado) . '">' . h($estado) . '</span>';
+    return lista_opciones("SELECT id_ciudad, nombre || ' (' || departamento || ')' FROM ciudad ORDER BY nombre");
 }
 
-/* ============================================================================
- * 4. VALIDACIONES DE DATOS DE ENTRADA
- * ============================================================================ */
+function lista_categorias()
+{
+    return lista_opciones('SELECT id_categoria, nombre FROM categoria ORDER BY nombre');
+}
 
-/** Valida que un texto sea obligatorio (si aplica) y no supere la longitud máxima. */
+/**
+ * Formulario de un solo botón que envía un POST y pide confirmación antes.
+ *   $campos:   campos ocultos, por ejemplo array('accion' => 'eliminar', 'id_ciudad' => 3)
+ *   $pregunta: texto de la confirmación ("¿Eliminar la ciudad Bogotá?")
+ * La confirmación la muestra js/app.js con el atributo data-confirmar.
+ */
+function boton_post($campos, $pregunta, $texto = 'Eliminar', $clase = 'boton peligro chico', $destino = '')
+{
+    $html = '<form method="post"' . ($destino !== '' ? ' action="' . h($destino) . '"' : '')
+          . ' data-confirmar="' . h($pregunta) . '">' . csrf_campo();
+    foreach ($campos as $nombre => $valor) {
+        $html .= '<input type="hidden" name="' . h($nombre) . '" value="' . h($valor) . '">';
+    }
+    return $html . '<button class="' . h($clase) . '">' . h($texto) . '</button></form>';
+}
+
+/**
+ * Borra un registro (DELETE con un id), deja el aviso de éxito o el error
+ * traducido (por ejemplo, ON DELETE RESTRICT) y vuelve a la lista.
+ */
+function eliminar_y_volver($sql, $id, $mensaje_ok, $volver)
+{
+    try {
+        consulta($sql, array($id));
+        flash('ok', $mensaje_ok);
+    } catch (PDOException $e) {
+        flash('error', mensaje_error_bd($e));
+    }
+    redirigir($volver);
+}
+
+/** Busca un registro para editarlo; si no existe, vuelve a la lista con un aviso. */
+function buscar_o_volver($sql, $id, $mensaje, $volver)
+{
+    $registro = fila($sql, array($id));
+    if (!$registro) {
+        flash('error', $mensaje);
+        redirigir($volver);
+    }
+    return $registro;
+}
+
+/**
+ * Ejecuta varias consultas como una sola transacción: o se guardan todas o ninguna.
+ * Si algo falla, deshace los cambios y vuelve a lanzar el error.
+ */
+function en_transaccion($pasos)
+{
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $resultado = $pasos();
+        $pdo->commit();
+        return $resultado;
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
+// --- Validaciones. Cada una agrega el problema a $errores si el dato no sirve. ---
+
+/** Texto obligatorio (u opcional) con un máximo de caracteres. */
 function validar_texto($valor, $campo, $max, &$errores, $obligatorio = true)
 {
     if ($valor === '') {
         if ($obligatorio) {
             $errores[] = "$campo es obligatorio.";
         }
-        return;
-    }
-    if (mb_strlen($valor, 'UTF-8') > $max) {
+    } elseif (mb_strlen($valor, 'UTF-8') > $max) {
         $errores[] = "$campo no puede tener más de $max caracteres.";
     }
 }
 
-/** Valida un texto contra una expresión regular. */
+/** Texto que debe cumplir una expresión regular. */
 function validar_patron($valor, $campo, $patron, $explicacion, &$errores)
 {
     if ($valor !== '' && !preg_match($patron, $valor)) {
@@ -242,7 +300,7 @@ function validar_patron($valor, $campo, $patron, $explicacion, &$errores)
     }
 }
 
-/** Valida que un valor sea un número entero no negativo dentro del rango permitido. */
+/** Número entero sin signo entre $minimo y $maximo. */
 function validar_entero($valor, $campo, &$errores, $minimo = 1, $maximo = 2147483647)
 {
     if ($valor === '') {
@@ -256,7 +314,7 @@ function validar_entero($valor, $campo, &$errores, $minimo = 1, $maximo = 214748
     }
 }
 
-/** Valida un importe monetario positivo compatible con NUMERIC(12,2). */
+/** Valor en pesos mayor que 0, con máximo 2 decimales (cabe en NUMERIC(12,2)). */
 function validar_dinero($valor, $campo, &$errores)
 {
     if ($valor === '') {
@@ -268,16 +326,15 @@ function validar_dinero($valor, $campo, &$errores)
     }
 }
 
-/** Valida una fecha en formato ISO (AAAA-MM-DD). */
+/** Fecha real con formato AAAA-MM-DD. */
 function validar_fecha($valor, $campo, &$errores)
 {
     $d = DateTime::createFromFormat('Y-m-d', $valor);
-    if ($valor === '' || !$d || $d->format('Y-m-d') !== $valor) {
+    if (!$d || $d->format('Y-m-d') !== $valor) {
         $errores[] = "$campo no es una fecha válida.";
     }
 }
 
-/** Valida el formato de una dirección de correo electrónico. */
 function validar_email($valor, $campo, &$errores)
 {
     if ($valor !== '' && !filter_var($valor, FILTER_VALIDATE_EMAIL)) {
@@ -285,7 +342,7 @@ function validar_email($valor, $campo, &$errores)
     }
 }
 
-/** Valida que un valor pertenezca a una lista cerrada de opciones permitidas. */
+/** El valor debe ser uno de la lista (por ejemplo, un estado permitido). */
 function validar_opcion($valor, $campo, $lista, &$errores)
 {
     if (!in_array($valor, $lista, true)) {
@@ -294,29 +351,29 @@ function validar_opcion($valor, $campo, $lista, &$errores)
 }
 
 /* ============================================================================
- * 5. TRADUCCIÓN DE ERRORES DE POSTGRESQL A MENSAJES ENTENDIBLES
+ * 5. ERRORES DE POSTGRESQL TRADUCIDOS A MENSAJES CLAROS
  * ============================================================================ */
 
 /**
- * Convierte una excepción PDOException de PostgreSQL en un mensaje claro para el usuario,
- * identificando el código SQLSTATE, los triggers (P0001) y las restricciones violadas.
+ * Convierte un error de PostgreSQL en un mensaje para el usuario.
+ * Se guía por el código SQLSTATE y por el nombre de la restricción que falló.
  */
 function mensaje_error_bd(PDOException $e)
 {
-    $estado = isset($e->errorInfo[0]) ? $e->errorInfo[0] : '';
-    $texto  = isset($e->errorInfo[2]) ? $e->errorInfo[2] : $e->getMessage();
+    $codigo = $e->errorInfo[0] ?? '';
+    $texto  = $e->errorInfo[2] ?? $e->getMessage();
 
-    // Mensajes específicos para restricciones CHECK, PRIMARY KEY y UNIQUE
+    // UNIQUE, PRIMARY KEY y CHECK, por nombre de restricción
     $restricciones = array(
-        'pk_cliente'           => 'Ya existe un cliente con esa cédula.',
-        'ck_cliente_id'        => 'La cédula debe ser mayor que 0.',
-        'uq_cliente_email'     => 'Ya existe un cliente registrado con ese correo.',
-        'uq_categoria_nombre'  => 'Ya existe una categoría con ese nombre.',
-        'ck_articulo_precio'   => 'El precio debe ser mayor que 0.',
-        'ck_articulo_stock'    => 'El stock no puede ser negativo.',
-        'pk_detalle_venta'     => 'Ese artículo ya está en la venta. Si necesita más unidades, quite la línea y agréguela con la cantidad total.',
-        'ck_detalle_cantidad'  => 'La cantidad debe ser mayor que 0.',
-        'ck_venta_estado'      => 'El estado de la venta no es válido.',
+        'pk_cliente'                 => 'Ya existe un cliente con esa cédula.',
+        'ck_cliente_id'              => 'La cédula debe ser mayor que 0.',
+        'uq_cliente_email'           => 'Ya existe un cliente registrado con ese correo.',
+        'uq_categoria_nombre'        => 'Ya existe una categoría con ese nombre.',
+        'ck_articulo_precio'         => 'El precio debe ser mayor que 0.',
+        'ck_articulo_stock'          => 'El stock no puede ser negativo.',
+        'pk_detalle_venta'           => 'Ese artículo ya está en la venta. Si necesita más unidades, quite la línea y agréguela con la cantidad total.',
+        'ck_detalle_cantidad'        => 'La cantidad debe ser mayor que 0.',
+        'ck_venta_estado'            => 'El estado de la venta no es válido.',
         'ck_forma_pago_tipo'         => 'El medio de pago no es válido.',
         'ck_forma_pago_monto'        => 'El monto del pago debe ser mayor que 0.',
         'ck_forma_pago_estado'       => 'El estado del pago no es válido.',
@@ -326,7 +383,7 @@ function mensaje_error_bd(PDOException $e)
         'ck_articulo_imagen_tamano'  => 'La imagen no puede pesar más de 2 MB.',
     );
 
-    // Mensajes específicos cuando ON DELETE RESTRICT impide borrar un registro en uso
+    // Llaves foráneas con ON DELETE RESTRICT: no se puede borrar algo que otra tabla usa
     $al_borrar = array(
         'fk_cliente_ciudad'     => 'No se puede eliminar la ciudad porque tiene clientes registrados.',
         'fk_articulo_categoria' => 'No se puede eliminar la categoría porque tiene artículos.',
@@ -335,96 +392,47 @@ function mensaje_error_bd(PDOException $e)
         'fk_forma_pago_venta'   => 'No se puede eliminar la venta porque tiene pagos registrados. Elimine primero los pagos.',
     );
 
-    // P0001 = Excepción lanzada por un TRIGGER (ej. trg_descontar_stock_venta o trg_validar_fecha_pago)
-    if ($estado === 'P0001') {
-        if (preg_match('/ERROR:\s*(.+?)(\n|CONTEXT:|$)/s', $texto, $m)) {
-            return trim($m[1]);
-        }
-        return $texto;
-    }
+    switch ($codigo) {
+        case 'P0001': // RAISE EXCEPTION de un disparador: se muestra su mensaje tal cual
+            return preg_match('/ERROR:\s*(.+?)(\n|CONTEXT:|$)/s', $texto, $m) ? trim($m[1]) : $texto;
 
-    // 23503 / 23001 = Violación de llave foránea (ON DELETE RESTRICT)
-    if ($estado === '23503' || $estado === '23001') {
-        foreach ($al_borrar as $nombre => $mensaje) {
-            if (strpos($texto, $nombre) !== false && stripos($texto, 'update or delete') !== false) {
-                return $mensaje;
+        case '23503': // llave foránea
+        case '23001':
+            foreach ($al_borrar as $nombre => $mensaje) {
+                if (strpos($texto, $nombre) !== false && stripos($texto, 'update or delete') !== false) {
+                    return $mensaje;
+                }
             }
-        }
-        return 'El registro relacionado no existe o está en uso por otra tabla.';
-    }
+            return 'El registro relacionado no existe o está en uso por otra tabla.';
 
-    // 23505 = Violación UNIQUE / PK | 23514 = Violación CHECK
-    if ($estado === '23505' || $estado === '23514') {
-        foreach ($restricciones as $nombre => $mensaje) {
-            if (strpos($texto, $nombre) !== false) {
-                return $mensaje;
+        case '23505': // UNIQUE o PRIMARY KEY repetida
+        case '23514': // CHECK
+            foreach ($restricciones as $nombre => $mensaje) {
+                if (strpos($texto, $nombre) !== false) {
+                    return $mensaje;
+                }
             }
-        }
-        return $estado === '23505'
-            ? 'Ese valor ya está registrado.'
-            : 'Un dato no cumple las reglas de la base de datos.';
-    }
+            return $codigo === '23505' ? 'Ese valor ya está registrado.' : 'Un dato no cumple las reglas de la base de datos.';
 
-    // 23502 = Violación NOT NULL
-    if ($estado === '23502') {
-        return 'Falta un dato obligatorio.';
-    }
+        case '23502': // NOT NULL
+            return 'Falta un dato obligatorio.';
 
-    if ($estado === '42501') {
-        error_log('Permiso denegado en PostgreSQL [42501]: ' . $texto);
-        return 'No tiene permisos para realizar esta operación.';
+        case '42501': // el rol de PostgreSQL no tiene permiso
+            error_log('Permiso denegado en PostgreSQL [42501]: ' . $texto);
+            return 'No tiene permisos para realizar esta operación.';
     }
 
     return 'Error de la base de datos: ' . $texto;
 }
 
 /* ============================================================================
- * 6. LÓGICA DE SEGUIMIENTO DE VENTAS Y CONSULTA NORMALIZADA (3FN)
+ * 6. VENTAS: CONSULTA CON TOTALES, PAGOS Y STOCK
  * ============================================================================ */
 
 /**
- * Calcula la suma de los pagos no rechazados (Aprobado + Pendiente) de una venta.
- * Se utiliza para evitar que se registren pagos por encima del valor total del pedido.
- */
-function pagos_comprometidos($id_venta, $excluir_pago = 0)
-{
-    return (float)valor(
-        "SELECT COALESCE(SUM(monto), 0)
-         FROM forma_pago
-         WHERE id_venta = ?
-           AND estado <> 'Rechazado'
-           AND id_pago <> ?",
-        array((int)$id_venta, (int)$excluir_pago)
-    );
-}
-
-/**
- * Sincroniza automáticamente el estado de la venta según sus pagos aprobados:
- *   - Si está 'Pendiente' y los pagos aprobados cubren el total -> pasa a 'Pagada'.
- *   - Si está 'Pagada' y al borrar/rechazar un pago deja de cubrir el total -> vuelve a 'Pendiente'.
- */
-function sincronizar_estado_venta($id_venta)
-{
-    $v = fila(sql_ventas() . ' WHERE v.id_venta = ?', array((int)$id_venta));
-    if (!$v) {
-        return;
-    }
-
-    $pagada = $v['total'] > 0 && (float)$v['pagado'] >= (float)$v['total'];
-
-    if ($v['estado'] === 'Pendiente' && $pagada) {
-        consulta("UPDATE venta SET estado = 'Pagada' WHERE id_venta = ?", array((int)$id_venta));
-        flash('info', 'La venta #' . $v['id_venta'] . ' quedó totalmente pagada y pasó a estado Pagada.');
-    } elseif ($v['estado'] === 'Pagada' && !$pagada) {
-        consulta("UPDATE venta SET estado = 'Pendiente' WHERE id_venta = ?", array((int)$id_venta));
-        flash('info', 'La venta #' . $v['id_venta'] . ' ya no está totalmente pagada y volvió a estado Pendiente.');
-    }
-}
-
-/**
- * Consulta base de ventas bajo Tercera Forma Normal (3FN):
- * El total de la venta NO se almacena estáticamente en la tabla `venta`;
- * se calcula dinámicamente multiplicando `cantidad * precio` desde `detalle_venta` y `articulo`.
+ * Consulta base de ventas. El total NO se guarda en la tabla venta (3FN):
+ * se calcula sumando cantidad * precio de detalle_venta. "pagado" suma solo los pagos Aprobados.
+ * Se le agrega WHERE / ORDER BY según la página.
  */
 function sql_ventas()
 {
@@ -443,44 +451,126 @@ function sql_ventas()
             JOIN cliente c ON c.id_cliente = v.id_cliente
             JOIN ciudad ci ON ci.id_ciudad = c.id_ciudad
             LEFT JOIN (
-                SELECT
-                    dv.id_venta,
-                    SUM(dv.cantidad * a.precio) AS total,
-                    SUM(dv.cantidad)            AS unidades
+                SELECT dv.id_venta,
+                       SUM(dv.cantidad * a.precio) AS total,
+                       SUM(dv.cantidad)            AS unidades
                 FROM detalle_venta dv
                 JOIN articulo a ON a.id_articulo = dv.id_articulo
                 GROUP BY dv.id_venta
             ) t ON t.id_venta = v.id_venta
             LEFT JOIN (
-                SELECT
-                    id_venta,
-                    SUM(monto) AS pagado
+                SELECT id_venta, SUM(monto) AS pagado
                 FROM forma_pago
                 WHERE estado = 'Aprobado'
                 GROUP BY id_venta
             ) p ON p.id_venta = v.id_venta";
 }
 
+/** Una venta con sus totales, o false si no existe. */
+function buscar_venta($id_venta)
+{
+    return fila(sql_ventas() . ' WHERE v.id_venta = ?', array((int)$id_venta));
+}
+
+/** ¿Los pagos aprobados ya cubren el total? (una venta sin artículos nunca está pagada) */
+function venta_pagada($venta)
+{
+    return $venta['total'] > 0 && (float)$venta['pagado'] >= (float)$venta['total'];
+}
+
+/** Artículos de una venta con su subtotal. */
+function lineas_venta($id_venta)
+{
+    return filas(
+        'SELECT d.id_articulo, d.cantidad, a.nombre, a.precio, (d.cantidad * a.precio) AS subtotal
+         FROM detalle_venta d
+         JOIN articulo a ON a.id_articulo = d.id_articulo
+         WHERE d.id_venta = ?
+         ORDER BY a.nombre',
+        array((int)$id_venta)
+    );
+}
+
+/** Pagos de una venta, del más antiguo al más nuevo. */
+function pagos_venta($id_venta)
+{
+    return filas('SELECT * FROM forma_pago WHERE id_venta = ? ORDER BY fecha_pago, id_pago', array((int)$id_venta));
+}
+
+/**
+ * Suma de los pagos que no están Rechazados (Aprobados + Pendientes).
+ * Sirve para no aceptar pagos por encima del total. $excluir_pago: el pago que se está editando.
+ */
+function pagos_comprometidos($id_venta, $excluir_pago = 0)
+{
+    return (float)valor(
+        "SELECT COALESCE(SUM(monto), 0)
+         FROM forma_pago
+         WHERE id_venta = ? AND estado <> 'Rechazado' AND id_pago <> ?",
+        array((int)$id_venta, (int)$excluir_pago)
+    );
+}
+
+/**
+ * Cambia sola la venta entre Pendiente y Pagada según sus pagos aprobados:
+ *   Pendiente y ya está cubierta  -> Pagada
+ *   Pagada y ya no está cubierta  -> Pendiente (por ejemplo, al borrar un pago)
+ */
+function sincronizar_estado_venta($id_venta)
+{
+    $venta = buscar_venta($id_venta);
+    if (!$venta) {
+        return;
+    }
+
+    $pagada = venta_pagada($venta);
+
+    if ($venta['estado'] === 'Pendiente' && $pagada) {
+        consulta("UPDATE venta SET estado = 'Pagada' WHERE id_venta = ?", array($venta['id_venta']));
+        flash('info', 'La venta #' . $venta['id_venta'] . ' quedó totalmente pagada y pasó a estado Pagada.');
+    } elseif ($venta['estado'] === 'Pagada' && !$pagada) {
+        consulta("UPDATE venta SET estado = 'Pendiente' WHERE id_venta = ?", array($venta['id_venta']));
+        flash('info', 'La venta #' . $venta['id_venta'] . ' ya no está totalmente pagada y volvió a estado Pendiente.');
+    }
+}
+
+/**
+ * Devuelve al inventario las unidades de una venta (al cancelarla o eliminarla).
+ * Una venta Cancelada ya devolvió su stock, así que no lo devuelve dos veces.
+ */
+function devolver_stock_venta($id_venta)
+{
+    consulta(
+        "UPDATE articulo a
+         SET stock = a.stock + d.cantidad
+         FROM detalle_venta d
+         JOIN venta v ON v.id_venta = d.id_venta
+         WHERE d.id_venta = ?
+           AND d.id_articulo = a.id_articulo
+           AND v.estado <> 'Cancelada'",
+        array((int)$id_venta)
+    );
+}
+
 /* ============================================================================
- * IMÁGENES DE ARTÍCULOS (tabla articulo_imagen)
+ * 7. IMÁGENES DE ARTÍCULOS (tabla articulo_imagen)
  * ============================================================================ */
 
 define('IMAGEN_MAX_BYTES', 2 * 1024 * 1024);
 
 /**
- * Revisa el archivo subido en $_FILES[$campo].
- * Devuelve array('tipo' => mime, 'datos' => bytes), null si no se subió nada,
- * o agrega el problema a $errores y devuelve null.
+ * Revisa la imagen subida en $_FILES[$campo].
+ * Devuelve array('tipo' => ..., 'datos' => ...), o null si no se subió nada o no sirve
+ * (en ese caso agrega el problema a $errores).
  */
 function leer_imagen_subida($campo, &$errores)
 {
-    if (empty($_FILES[$campo]) || $_FILES[$campo]['error'] === UPLOAD_ERR_NO_FILE) {
+    $archivo = $_FILES[$campo] ?? null;
+    if (!$archivo || $archivo['error'] === UPLOAD_ERR_NO_FILE) {
         return null;
     }
 
-    $archivo = $_FILES[$campo];
-
-    if ($archivo['error'] === UPLOAD_ERR_INI_SIZE || $archivo['error'] === UPLOAD_ERR_FORM_SIZE
+    if (in_array($archivo['error'], array(UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE), true)
         || $archivo['size'] > IMAGEN_MAX_BYTES) {
         $errores[] = 'La imagen no puede pesar más de 2 MB.';
         return null;
@@ -491,24 +581,17 @@ function leer_imagen_subida($campo, &$errores)
         return null;
     }
 
-    // getimagesize lee el contenido real del archivo, no solo su extensión.
+    // getimagesize revisa el contenido real del archivo, no solo la extensión del nombre.
     $info = @getimagesize($archivo['tmp_name']);
-    $permitidos = array('image/jpeg', 'image/png', 'image/webp');
-    if (!$info || !in_array($info['mime'], $permitidos, true)) {
+    if (!$info || !in_array($info['mime'], array('image/jpeg', 'image/png', 'image/webp'), true)) {
         $errores[] = 'La imagen debe ser JPG, PNG o WEBP.';
         return null;
     }
 
-    return array(
-        'tipo'  => $info['mime'],
-        'datos' => file_get_contents($archivo['tmp_name']),
-    );
+    return array('tipo' => $info['mime'], 'datos' => file_get_contents($archivo['tmp_name']));
 }
 
-/**
- * Crea o reemplaza la imagen de un artículo.
- * BYTEA necesita PDO::PARAM_LOB para enviar los bytes sin alterarlos.
- */
+/** Crea o reemplaza la imagen de un artículo. BYTEA necesita PARAM_LOB para no alterar los bytes. */
 function guardar_imagen_articulo($id_articulo, $imagen)
 {
     $sentencia = db()->prepare(
@@ -524,8 +607,8 @@ function guardar_imagen_articulo($id_articulo, $imagen)
 }
 
 /**
- * Pinta la imagen del artículo, o un recuadro con la inicial si no tiene.
- * $version es articulo_imagen.actualizada: cambia la URL cuando se reemplaza la foto.
+ * <img> del artículo, o un recuadro con su inicial si no tiene foto.
+ * $version es articulo_imagen.actualizada: al cambiar la foto cambia la URL y el navegador la recarga.
  */
 function imagen_articulo($id_articulo, $version, $nombre, $clase = 'imagen-articulo')
 {
@@ -534,6 +617,6 @@ function imagen_articulo($id_articulo, $version, $nombre, $clase = 'imagen-artic
         return '<div class="' . h($clase) . ' sin-imagen" aria-hidden="true"><span>' . h($inicial) . '</span></div>';
     }
 
-    $url = 'imagen.php?id=' . (int)$id_articulo . '&v=' . rawurlencode(strtotime($version));
+    $url = 'imagen.php?id=' . (int)$id_articulo . '&v=' . strtotime($version);
     return '<img class="' . h($clase) . '" src="' . h($url) . '" alt="' . h($nombre) . '" loading="lazy">';
 }

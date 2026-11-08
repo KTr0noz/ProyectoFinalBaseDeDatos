@@ -1,67 +1,36 @@
 <?php
+/**
+ * Registro público: crea una cuenta de cliente y entra a la tienda.
+ * Se hace con rol_visitante, que solo puede insertar ciertas columnas de cliente (login_roles.sql).
+ * La contraseña se guarda cifrada con password_hash; la base no deja repetir cédula ni correo.
+ */
 
 require_once 'includes/funciones.php';
-
-cabeceras_no_cache();
-verificar_inactividad_sesion();
-
-if (!empty($_SESSION['id_cliente']) && !empty($_SESSION['rol'])) {
-    redirigir($_SESSION['rol'] === 'admin' ? 'index.php' : 'tienda.php');
-}
-
-aplicar_rol_bd('visitante');
+solo_visitantes();
 
 $errores = array();
-$datos   = array(
-    'id_cliente' => '',
-    'nombre'     => '',
-    'apellido'   => '',
-    'email'      => '',
-    'telefono'   => '',
-    'direccion'  => '',
-    'id_ciudad'  => '',
-);
+$datos   = array('id_cliente' => '', 'nombre' => '', 'apellido' => '', 'email' => '',
+                 'telefono' => '', 'direccion' => '', 'id_ciudad' => '');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $datos = array(
-        'id_cliente' => post('id_cliente'),
-        'nombre'     => post('nombre'),
-        'apellido'   => post('apellido'),
-        'email'      => mb_strtolower(post('email'), 'UTF-8'),
-        'telefono'   => post('telefono'),
-        'direccion'  => post('direccion'),
-        'id_ciudad'  => post('id_ciudad'),
-    );
-
-    $clave        = isset($_POST['clave']) ? (string)$_POST['clave'] : '';
-    $confirmacion = isset($_POST['confirmacion']) ? (string)$_POST['confirmacion'] : '';
+    $datos = datos_cliente_del_formulario();
+    $clave = (string)($_POST['clave'] ?? '');
 
     if (!csrf_validar()) {
         $errores[] = 'La sesión del formulario expiró. Intente nuevamente.';
     } else {
         validar_datos_cliente($datos, $errores);
-        validar_clave($clave, $confirmacion, $errores, true);
+        validar_clave($clave, (string)($_POST['confirmacion'] ?? ''), $errores);
     }
 
     if (!$errores) {
-        $hash = password_hash($clave, PASSWORD_DEFAULT);
-
         try {
             consulta(
                 'INSERT INTO cliente (id_cliente, nombre, apellido, email, telefono, direccion, id_ciudad, password_hash)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                array(
-                    (int)$datos['id_cliente'],
-                    $datos['nombre'],
-                    $datos['apellido'],
-                    $datos['email'],
-                    $datos['telefono'],
-                    $datos['direccion'],
-                    (int)$datos['id_ciudad'],
-                    $hash,
-                )
+                array((int)$datos['id_cliente'], $datos['nombre'], $datos['apellido'], $datos['email'],
+                      $datos['telefono'], $datos['direccion'], (int)$datos['id_ciudad'], password_hash($clave, PASSWORD_DEFAULT))
             );
-
             iniciar_sesion_usuario((int)$datos['id_cliente'], 'cliente');
             flash('ok', 'Cuenta creada. Bienvenido a la tienda.');
             redirigir('tienda.php');
@@ -71,32 +40,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$ciudades = array();
-foreach (filas('SELECT id_ciudad, nombre, departamento FROM ciudad ORDER BY nombre') as $c) {
-    $ciudades[$c['id_ciudad']] = $c['nombre'] . ' (' . $c['departamento'] . ')';
-}
-?><!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Crear cuenta · Ventas por Internet</title>
-    <link rel="preload" href="css/fuentes/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="css/estilos.css">
-</head>
-<body class="cuerpo-auth">
-<a class="saltar" href="#contenido">Saltar al contenido</a>
-
-<header class="barra-auth">
-    <div class="barra-auth-interior">
-        <a class="marca marca-oscura" href="login.php">
-            <span class="logo">VI</span>
-            Ventas por Internet
-        </a>
-        <a class="enlace-auth" href="login.php">Ya tengo cuenta</a>
-    </div>
-</header>
-
+$ciudades    = lista_ciudades();
+$titulo      = 'Crear cuenta';
+$enlace_auth = array('login.php', 'Ya tengo cuenta');
+include 'includes/encabezado_auth.php';
+?>
 <main class="contenedor-auth contenedor-auth-ancho" id="contenido">
     <section class="panel-auth" aria-labelledby="titulo-registro">
         <div class="cabecera-auth">
@@ -167,9 +115,4 @@ foreach (filas('SELECT id_ciudad, nombre, departamento FROM ciudad ORDER BY nomb
         </form>
     </section>
 </main>
-
-<footer class="pie pie-auth">
-    Proyecto #13 · Sistema de Ventas por Internet · Bases de Datos 2026-II · Universidad de los Llanos
-</footer>
-</body>
-</html>
+<?php include 'includes/pie_auth.php'; ?>

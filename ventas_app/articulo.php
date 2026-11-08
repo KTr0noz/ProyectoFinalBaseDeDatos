@@ -1,33 +1,25 @@
 <?php
+/** Ficha de un artículo: foto, precio, stock y formulario para agregarlo al carrito con una cantidad. */
 
 require_once 'includes/funciones.php';
 require_cliente();
 
 $id = (int)get('id');
-
 $articulo = fila(
-    'SELECT
-         a.id_articulo,
-         a.nombre,
-         a.descripcion,
-         a.precio,
-         a.stock,
-         a.id_categoria,
-         c.nombre AS categoria,
-         ai.actualizada AS imagen_version
+    'SELECT a.id_articulo, a.nombre, a.descripcion, a.precio, a.stock,
+            c.nombre AS categoria, ai.actualizada AS imagen_version
      FROM articulo a
      JOIN categoria c ON c.id_categoria = a.id_categoria
      LEFT JOIN articulo_imagen ai ON ai.id_articulo = a.id_articulo
      WHERE a.id_articulo = ?',
     array($id)
 );
-
 if (!$articulo) {
     flash('error', 'El artículo solicitado no existe.');
     redirigir('tienda.php');
 }
 
-$en_carrito = isset($_SESSION['carrito'][$id]) ? (int)$_SESSION['carrito'][$id] : 0;
+$en_carrito = (int)($_SESSION['carrito'][$id] ?? 0);
 
 $titulo = $articulo['nombre'];
 $activo = 'tienda.php';

@@ -1,14 +1,8 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/categorias.php
- * DESCRIPCIÓN:
- *   Módulo de categorías del catálogo (`categoria`):
- *     - Permite listar, crear, editar y eliminar categorías comerciales.
- *     - Reglas de integridad en PostgreSQL: nombre único (`uq_categoria_nombre`)
- *       y restricción `ON DELETE RESTRICT` (`fk_articulo_categoria`) que impide
- *       eliminar categorías con artículos asociados.
- * ============================================================================
+ * Categorías del catálogo (tabla categoria): listar, crear, editar y eliminar.
+ * La base no deja repetir nombres (uq_categoria_nombre) ni borrar una categoría
+ * que tenga artículos (fk_articulo_categoria ON DELETE RESTRICT).
  */
 
 require_once 'includes/funciones.php';
@@ -16,58 +10,34 @@ require_admin();
 
 $accion  = get('accion');
 $errores = array();
-$datos   = array(
-    'id_categoria' => '',
-    'nombre'       => '',
-    'descripcion'  => '',
-);
+$datos   = array('id_categoria' => '', 'nombre' => '', 'descripcion' => '');
 
-/* ============================================================================
- * 1. PROCESAMIENTO DE FORMULARIOS (POST: ELIMINAR, CREAR O EDITAR CATEGORÍA)
- * ============================================================================ */
-
+// ---------- Formularios enviados ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_validar()) {
-        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
-        redirigir('categorias.php');
-    }
+    exigir_csrf('categorias.php');
 
-    // 1.1 Eliminar categoría
     if (post('accion') === 'eliminar') {
-        try {
-            consulta('DELETE FROM categoria WHERE id_categoria = ?', array((int)post('id_categoria')));
-            flash('ok', 'Categoría eliminada.');
-        } catch (PDOException $e) {
-            flash('error', mensaje_error_bd($e));
-        }
-        redirigir('categorias.php');
+        eliminar_y_volver('DELETE FROM categoria WHERE id_categoria = ?', (int)post('id_categoria'), 'Categoría eliminada.', 'categorias.php');
     }
 
-    // 1.2 Crear o actualizar categoría
+    // Guardar: sin id es nueva, con id es edición
     $datos = array(
         'id_categoria' => post('id_categoria'),
         'nombre'       => post('nombre'),
         'descripcion'  => post('descripcion'),
     );
-
     validar_texto($datos['nombre'], 'Nombre', 80, $errores);
     validar_texto($datos['descripcion'], 'Descripción', 255, $errores, false);
 
     if (!$errores) {
-        $descripcion = $datos['descripcion'] === '' ? null : $datos['descripcion'];
-
         try {
+            $params = array($datos['nombre'], nulo_si_vacio($datos['descripcion']));
             if ($datos['id_categoria'] === '') {
-                consulta(
-                    'INSERT INTO categoria (nombre, descripcion) VALUES (?, ?)',
-                    array($datos['nombre'], $descripcion)
-                );
+                consulta('INSERT INTO categoria (nombre, descripcion) VALUES (?, ?)', $params);
                 flash('ok', 'Categoría registrada.');
             } else {
-                consulta(
-                    'UPDATE categoria SET nombre = ?, descripcion = ? WHERE id_categoria = ?',
-                    array($datos['nombre'], $descripcion, (int)$datos['id_categoria'])
-                );
+                $params[] = (int)$datos['id_categoria'];
+                consulta('UPDATE categoria SET nombre = ?, descripcion = ? WHERE id_categoria = ?', $params);
                 flash('ok', 'Categoría actualizada.');
             }
             redirigir('categorias.php');
@@ -75,23 +45,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errores[] = mensaje_error_bd($e);
         }
     }
-
     $accion = 'formulario';
 }
-
-/* ============================================================================
- * 2. PREPARACIÓN Y RENDERIZADO DE VISTAS
- * ============================================================================ */
 
 if ($accion === 'editar') {
-    $datos = fila('SELECT * FROM categoria WHERE id_categoria = ?', array((int)get('id')));
-    if (!$datos) {
-        flash('error', 'La categoría no existe.');
-        redirigir('categorias.php');
-    }
+    $datos  = buscar_o_volver('SELECT * FROM categoria WHERE id_categoria = ?', (int)get('id'), 'La categoría no existe.', 'categorias.php');
     $accion = 'formulario';
 }
-
 if ($accion === 'nueva') {
     $accion = 'formulario';
 }
@@ -100,6 +60,7 @@ $titulo = 'Categorías';
 $activo = 'categorias.php';
 include 'includes/encabezado.php';
 
+// ---------- Formulario de nueva / editar ----------
 if ($accion === 'formulario'): ?>
     <div class="encabezado">
         <h1><?= $datos['id_categoria'] === '' ? 'Nueva categoría' : 'Editar categoría' ?></h1>
@@ -109,7 +70,6 @@ if ($accion === 'formulario'): ?>
 
     <form method="post" class="tarjeta formulario">
         <?= csrf_campo() ?>
-        <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_categoria" value="<?= h($datos['id_categoria']) ?>">
 
         <div class="completo">
@@ -129,10 +89,9 @@ if ($accion === 'formulario'): ?>
     </form>
 
 <?php else:
+    // ---------- Lista ----------
     $lista = filas(
-        'SELECT
-             ca.*,
-             (SELECT COUNT(*) FROM articulo a WHERE a.id_categoria = ca.id_categoria) AS articulos
+        'SELECT ca.*, (SELECT COUNT(*) FROM articulo a WHERE a.id_categoria = ca.id_categoria) AS articulos
          FROM categoria ca
          ORDER BY ca.nombre'
     );
@@ -162,25 +121,16 @@ if ($accion === 'formulario'): ?>
                         <td><?= $c['id_categoria'] ?></td>
                         <td><?= h($c['nombre']) ?></td>
                         <td><?= h($c['descripcion']) ?></td>
-                        <td class="num">
-                            <a href="articulos.php?categoria=<?= $c['id_categoria'] ?>"><?= $c['articulos'] ?></a>
-                        </td>
+                        <td class="num"><a href="articulos.php?categoria=<?= $c['id_categoria'] ?>"><?= $c['articulos'] ?></a></td>
                         <td class="acciones">
                             <a class="boton secundario chico" href="categorias.php?accion=editar&id=<?= $c['id_categoria'] ?>">Editar</a>
-                            <form method="post" onsubmit="return confirm(<?= js('¿Eliminar la categoría ' . $c['nombre'] . '?') ?>)">
-                                <?= csrf_campo() ?>
-                                <input type="hidden" name="accion" value="eliminar">
-                                <input type="hidden" name="id_categoria" value="<?= $c['id_categoria'] ?>">
-                                <button class="boton peligro chico">Eliminar</button>
-                            </form>
+                            <?= boton_post(array('accion' => 'eliminar', 'id_categoria' => $c['id_categoria']), '¿Eliminar la categoría ' . $c['nombre'] . '?') ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
 
                 <?php if (!$lista): ?>
-                    <tr>
-                        <td colspan="5" class="vacio">No hay categorías.</td>
-                    </tr>
+                    <tr><td colspan="5" class="vacio">No hay categorías.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>

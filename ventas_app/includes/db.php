@@ -1,37 +1,34 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/includes/db.php
- * DESCRIPCIÓN:
- *   Capa de acceso a datos con PDO (extensión pdo_pgsql).
- *   Todas las consultas utilizan sentencias preparadas (?) para separar el
- *   código SQL de los datos del usuario y prevenir inyección SQL.
- * ============================================================================
+ * Conexión a PostgreSQL con PDO y cuatro atajos para consultar.
+ * Todas las consultas usan "?" y los valores van aparte (sentencias preparadas),
+ * así nada de lo que escribe el usuario se mezcla con el SQL (evita inyección SQL).
  */
 
-/**
- * Obtiene la conexión única (Singleton) a PostgreSQL mediante PDO.
- */
+/** La conexión única a la base (se abre la primera vez que se pide). */
 function db()
 {
     static $pdo = null;
 
     if ($pdo === null) {
-        $dsn = 'pgsql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME;
-
         try {
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, array(
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            ));
+            $pdo = new PDO(
+                'pgsql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME,
+                DB_USER,
+                DB_PASS,
+                array(
+                    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // los errores lanzan PDOException
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // filas como arreglo columna => valor
+                )
+            );
         } catch (PDOException $e) {
             http_response_code(500);
-            echo '<!doctype html><meta charset="utf-8"><title>Sin conexión</title>';
-            echo '<div style="font-family:sans-serif;max-width:640px;margin:60px auto;line-height:1.5">';
-            echo '<h2>No se pudo conectar a la base de datos</h2>';
-            echo '<p>Revisa que PostgreSQL esté activo y que la base <b>' . htmlspecialchars(DB_NAME) . '</b> esté disponible.</p>';
-            echo '<pre style="background:#f4f4f4;padding:12px;white-space:pre-wrap">' . htmlspecialchars($e->getMessage()) . '</pre>';
-            echo '</div>';
+            echo '<!doctype html><meta charset="utf-8"><title>Sin conexión</title>'
+               . '<div style="font-family:sans-serif;max-width:640px;margin:60px auto;line-height:1.5">'
+               . '<h2>No se pudo conectar a la base de datos</h2>'
+               . '<p>Revisa que PostgreSQL esté activo y que la base <b>' . htmlspecialchars(DB_NAME) . '</b> esté disponible.</p>'
+               . '<pre style="background:#f4f4f4;padding:12px;white-space:pre-wrap">' . htmlspecialchars($e->getMessage()) . '</pre>'
+               . '</div>';
             exit;
         }
     }
@@ -39,10 +36,7 @@ function db()
     return $pdo;
 }
 
-/**
- * Prepara y ejecuta una consulta SQL con parámetros seguros (?).
- * Devuelve el objeto PDOStatement resultante.
- */
+/** Ejecuta una consulta con sus valores y devuelve el resultado (PDOStatement). */
 function consulta($sql, $params = array())
 {
     $sentencia = db()->prepare($sql);
@@ -50,26 +44,19 @@ function consulta($sql, $params = array())
     return $sentencia;
 }
 
-/**
- * Ejecuta una consulta y devuelve todas las filas como arreglo asociativo.
- */
+/** Todas las filas del resultado. */
 function filas($sql, $params = array())
 {
     return consulta($sql, $params)->fetchAll();
 }
 
-/**
- * Ejecuta una consulta y devuelve una única fila (o false si no existe).
- */
+/** La primera fila, o false si no hay ninguna. */
 function fila($sql, $params = array())
 {
     return consulta($sql, $params)->fetch();
 }
 
-/**
- * Ejecuta una consulta y devuelve el primer valor de la primera fila
- * (útil para COUNT, SUM o RETURNING).
- */
+/** El primer dato de la primera fila (COUNT, SUM, RETURNING id...). */
 function valor($sql, $params = array())
 {
     return consulta($sql, $params)->fetchColumn();

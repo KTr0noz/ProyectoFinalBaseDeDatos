@@ -1,15 +1,10 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/ventas.php
- * DESCRIPCIÓN:
- *   Módulo de órdenes de venta:
- *     - Listado general con búsqueda, filtro por estado y cálculo dinámico (3FN)
- *       de unidades, total de la venta, monto pagado y saldo pendiente.
- *     - Creación del encabezado de una nueva venta (en estado 'Pendiente').
- *     - Eliminación de una venta devolviendo su stock al inventario dentro de
- *       una transacción ACID (salvo si tiene pagos registrados: RESTRICT).
- * ============================================================================
+ * Ventas: lista con búsqueda y filtro por estado, crear una venta nueva y eliminar una venta.
+ *   - El total, las unidades y lo pagado se calculan con sql_ventas() (no se guardan: 3FN).
+ *   - Una venta nueva empieza Pendiente; los artículos se agregan después en venta.php.
+ *   - Al eliminar una venta, sus unidades vuelven al inventario. Si tiene pagos, la base
+ *     no la deja borrar (fk_forma_pago_venta ON DELETE RESTRICT) y nada cambia.
  */
 
 require_once 'includes/funciones.php';
@@ -17,105 +12,63 @@ require_admin();
 
 $accion  = get('accion');
 $errores = array();
-$datos   = array(
-    'id_cliente'      => get('cliente'),
-    'fecha'           => date('Y-m-d'),
-    'estado'          => 'Pendiente',
-    'direccion_envio' => '',
-);
+$datos   = array('id_cliente' => get('cliente'), 'fecha' => date('Y-m-d'), 'direccion_envio' => '');
 
-/* ============================================================================
- * 1. PROCESAMIENTO DE FORMULARIOS (POST: ELIMINAR O CREAR VENTA)
- * ============================================================================ */
-
+// ---------- Formularios enviados ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_validar()) {
-        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
-        redirigir('ventas.php');
-    }
+    exigir_csrf('ventas.php');
 
-    // 1.1 Eliminar una orden de venta
+    // Eliminar venta (se envía desde venta.php)
     if (post('accion') === 'eliminar') {
-        $id  = (int)post('id_venta');
-        $pdo = db();
-
+        $id = (int)post('id_venta');
         try {
-            // Transacción ACID:
-            // - Si la venta no estaba 'Cancelada', devuelve las unidades al stock de cada artículo.
-            // - Elimina la venta (detalle_venta se limpia por ON DELETE CASCADE).
-            // - Si existen pagos asociados, fk_forma_pago_venta (ON DELETE RESTRICT) aborta la operación.
-            $pdo->beginTransaction();
-
-            consulta(
-                "UPDATE articulo a
-                 SET stock = a.stock + d.cantidad
-                 FROM detalle_venta d
-                 JOIN venta v ON v.id_venta = d.id_venta
-                 WHERE d.id_venta = ?
-                   AND d.id_articulo = a.id_articulo
-                   AND v.estado <> 'Cancelada'",
-                array($id)
-            );
-
-            consulta('DELETE FROM venta WHERE id_venta = ?', array($id));
-            $pdo->commit();
-
+            en_transaccion(function () use ($id) {
+                devolver_stock_venta($id);
+                consulta('DELETE FROM venta WHERE id_venta = ?', array($id)); // detalle_venta se borra en cascada
+            });
             flash('ok', "Venta #$id eliminada y su stock devuelto al inventario.");
             redirigir('ventas.php');
         } catch (PDOException $e) {
-            $pdo->rollBack();
             flash('error', mensaje_error_bd($e));
             redirigir('venta.php?id=' . $id);
         }
     }
 
-    // 1.2 Crear el encabezado de una venta nueva
+    // Crear venta nueva
     $datos = array(
         'id_cliente'      => post('id_cliente'),
         'fecha'           => post('fecha'),
-        'estado'          => 'Pendiente',
         'direccion_envio' => post('direccion_envio'),
     );
-
     $cliente = fila('SELECT id_cliente, direccion FROM cliente WHERE id_cliente = ?', array((int)$datos['id_cliente']));
     if (!$cliente) {
         $errores[] = 'Seleccione un cliente.';
     }
-
     validar_fecha($datos['fecha'], 'Fecha', $errores);
-    validar_opcion($datos['estado'], 'Estado', $ESTADOS_VENTA, $errores);
     validar_texto($datos['direccion_envio'], 'Dirección de envío', 150, $errores, false);
 
     if (!$errores) {
-        // Si no se especifica dirección de envío, se toma por defecto la dirección del cliente
+        // Sin dirección de envío se usa la dirección del cliente
         $direccion = $datos['direccion_envio'] !== '' ? $datos['direccion_envio'] : $cliente['direccion'];
-
         try {
             $id = valor(
-                'INSERT INTO venta (fecha, estado, direccion_envio, id_cliente)
-                 VALUES (?, ?, ?, ?)
-                 RETURNING id_venta',
-                array($datos['fecha'], $datos['estado'], $direccion, (int)$datos['id_cliente'])
+                "INSERT INTO venta (fecha, estado, direccion_envio, id_cliente) VALUES (?, 'Pendiente', ?, ?) RETURNING id_venta",
+                array($datos['fecha'], $direccion, (int)$datos['id_cliente'])
             );
-
             flash('ok', "Venta #$id creada. Ahora agregue los artículos.");
             redirigir('venta.php?id=' . $id);
         } catch (PDOException $e) {
             $errores[] = mensaje_error_bd($e);
         }
     }
-
     $accion = 'nueva';
 }
-
-/* ============================================================================
- * 2. RENDERIZADO DE VISTAS (FORMULARIO DE NUEVA VENTA O LISTADO)
- * ============================================================================ */
 
 $titulo = 'Ventas';
 $activo = 'ventas.php';
 include 'includes/encabezado.php';
 
+// ---------- Formulario de venta nueva ----------
 if ($accion === 'nueva'):
     $clientes = filas('SELECT id_cliente, nombre, apellido, direccion FROM cliente ORDER BY apellido, nombre');
 ?>
@@ -126,25 +79,19 @@ if ($accion === 'nueva'):
     <?php mostrar_errores($errores); ?>
 
     <?php if (!$clientes): ?>
-        <div class="alerta alerta-info">
-            Primero registre al menos un <a href="clientes.php?accion=nuevo">cliente</a>.
-        </div>
+        <div class="alerta alerta-info">Primero registre al menos un <a href="clientes.php?accion=nuevo">cliente</a>.</div>
     <?php endif; ?>
 
     <form method="post" class="tarjeta formulario">
         <?= csrf_campo() ?>
-        <input type="hidden" name="accion" value="guardar">
 
         <div class="completo">
             <label for="id_cliente">Cliente</label>
-            <select id="id_cliente" name="id_cliente" required>
+            <!-- js/app.js copia la dirección del cliente elegido en "Dirección de envío" -->
+            <select id="id_cliente" name="id_cliente" required data-copiar-direccion="direccion_envio">
                 <option value="">Seleccione…</option>
                 <?php foreach ($clientes as $c): ?>
-                    <option
-                        value="<?= $c['id_cliente'] ?>"
-                        data-direccion="<?= h($c['direccion']) ?>"
-                        <?= (string)$c['id_cliente'] === (string)$datos['id_cliente'] ? 'selected' : '' ?>
-                    >
+                    <option value="<?= $c['id_cliente'] ?>" data-direccion="<?= h($c['direccion']) ?>"<?= (string)$c['id_cliente'] === (string)$datos['id_cliente'] ? ' selected' : '' ?>>
                         <?= h($c['apellido'] . ', ' . $c['nombre'] . ' — ' . $c['id_cliente']) ?>
                     </option>
                 <?php endforeach; ?>
@@ -174,21 +121,10 @@ if ($accion === 'nueva'):
         </div>
     </form>
 
-    <script>
-    // Al seleccionar un cliente, completa automáticamente su dirección de envío sugerida
-    document.getElementById('id_cliente').addEventListener('change', function () {
-        var opcion = this.options[this.selectedIndex];
-        var campo  = document.getElementById('direccion_envio');
-        if (opcion && opcion.dataset.direccion) {
-            campo.value = opcion.dataset.direccion;
-        }
-    });
-    </script>
-
 <?php else:
+    // ---------- Lista: busca por número de venta, nombre o cédula, y filtra por estado ----------
     $q      = get('q');
     $estado = get('estado');
-
     $condiciones = array();
     $params      = array();
 
@@ -196,14 +132,15 @@ if ($accion === 'nueva'):
         $condiciones[] = "(c.nombre || ' ' || c.apellido ILIKE ? OR CAST(c.id_cliente AS TEXT) LIKE ? OR CAST(v.id_venta AS TEXT) = ?)";
         array_push($params, "%$q%", "%$q%", $q);
     }
-
     if ($estado !== '') {
         $condiciones[] = 'v.estado = ?';
         $params[]      = $estado;
     }
 
-    $sql   = sql_ventas() . ($condiciones ? ' WHERE ' . implode(' AND ', $condiciones) : '');
-    $lista = filas($sql . ' ORDER BY v.fecha DESC, v.id_venta DESC', $params);
+    $lista = filas(
+        sql_ventas() . ($condiciones ? ' WHERE ' . implode(' AND ', $condiciones) : '') . ' ORDER BY v.fecha DESC, v.id_venta DESC',
+        $params
+    );
 ?>
     <div class="encabezado">
         <div>
@@ -243,25 +180,18 @@ if ($accion === 'nueva'):
                         <tr>
                             <td><a href="venta.php?id=<?= $v['id_venta'] ?>"><?= $v['id_venta'] ?></a></td>
                             <td><?= fecha($v['fecha']) ?></td>
-                            <td>
-                                <?= h($v['cliente']) ?>
-                                <div class="ayuda"><?= h($v['ciudad']) ?></div>
-                            </td>
+                            <td><?= h($v['cliente']) ?><div class="ayuda"><?= h($v['ciudad']) ?></div></td>
                             <td><?= etiqueta_estado($v['estado']) ?></td>
                             <td class="num"><?= $v['unidades'] ?></td>
                             <td class="num"><?= dinero($v['total']) ?></td>
                             <td class="num"><?= dinero($v['pagado']) ?></td>
                             <td class="num <?= $saldo > 0 ? 'stock-bajo' : '' ?>"><?= dinero($saldo) ?></td>
-                            <td class="acciones">
-                                <a class="boton secundario chico" href="venta.php?id=<?= $v['id_venta'] ?>">Ver</a>
-                            </td>
+                            <td class="acciones"><a class="boton secundario chico" href="venta.php?id=<?= $v['id_venta'] ?>">Ver</a></td>
                         </tr>
                     <?php endforeach; ?>
 
                     <?php if (!$lista): ?>
-                        <tr>
-                            <td colspan="9" class="vacio">No hay ventas que coincidan.</td>
-                        </tr>
+                        <tr><td colspan="9" class="vacio">No hay ventas que coincidan.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>

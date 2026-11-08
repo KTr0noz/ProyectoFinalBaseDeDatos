@@ -1,13 +1,7 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/ciudades.php
- * DESCRIPCIÓN:
- *   Módulo de ciudades (`ciudad`):
- *     - Permite listar, buscar, registrar, editar y eliminar municipios/ciudades.
- *     - Regla de integridad en PostgreSQL: `ON DELETE RESTRICT` en
- *       `fk_cliente_ciudad` impide eliminar una ciudad que tenga clientes.
- * ============================================================================
+ * Ciudades de los clientes (tabla ciudad): listar, buscar, crear, editar y eliminar.
+ * La base no deja borrar una ciudad que tenga clientes (fk_cliente_ciudad ON DELETE RESTRICT).
  */
 
 require_once 'includes/funciones.php';
@@ -15,36 +9,17 @@ require_admin();
 
 $accion  = get('accion');
 $errores = array();
-$datos   = array(
-    'id_ciudad'     => '',
-    'nombre'        => '',
-    'departamento'  => '',
-    'pais'          => 'Colombia',
-    'codigo_postal' => '',
-);
+$datos   = array('id_ciudad' => '', 'nombre' => '', 'departamento' => '', 'pais' => 'Colombia', 'codigo_postal' => '');
 
-/* ============================================================================
- * 1. PROCESAMIENTO DE FORMULARIOS (POST: ELIMINAR, CREAR O EDITAR CIUDAD)
- * ============================================================================ */
-
+// ---------- Formularios enviados ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_validar()) {
-        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
-        redirigir('ciudades.php');
-    }
+    exigir_csrf('ciudades.php');
 
-    // 1.1 Eliminar ciudad
     if (post('accion') === 'eliminar') {
-        try {
-            consulta('DELETE FROM ciudad WHERE id_ciudad = ?', array((int)post('id_ciudad')));
-            flash('ok', 'Ciudad eliminada.');
-        } catch (PDOException $e) {
-            flash('error', mensaje_error_bd($e));
-        }
-        redirigir('ciudades.php');
+        eliminar_y_volver('DELETE FROM ciudad WHERE id_ciudad = ?', (int)post('id_ciudad'), 'Ciudad eliminada.', 'ciudades.php');
     }
 
-    // 1.2 Crear o actualizar ciudad
+    // Guardar: sin id es nueva, con id es edición
     $datos = array(
         'id_ciudad'     => post('id_ciudad'),
         'nombre'        => post('nombre'),
@@ -52,40 +27,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'pais'          => post('pais'),
         'codigo_postal' => post('codigo_postal'),
     );
-
     validar_texto($datos['nombre'], 'Nombre', 80, $errores);
     validar_texto($datos['departamento'], 'Departamento', 80, $errores);
     validar_texto($datos['pais'], 'País', 60, $errores);
     validar_texto($datos['codigo_postal'], 'Código postal', 15, $errores);
-    validar_patron(
-        $datos['codigo_postal'],
-        'Código postal',
-        '/^[0-9A-Za-z-]{3,15}$/',
-        'solo números, letras o guiones (3 a 15 caracteres).',
-        $errores
-    );
+    validar_patron($datos['codigo_postal'], 'Código postal', '/^[0-9A-Za-z-]{3,15}$/',
+        'solo números, letras o guiones (3 a 15 caracteres).', $errores);
 
     if (!$errores) {
         try {
-            $params = array(
-                $datos['nombre'],
-                $datos['departamento'],
-                $datos['pais'],
-                $datos['codigo_postal'],
-            );
-
+            $params = array($datos['nombre'], $datos['departamento'], $datos['pais'], $datos['codigo_postal']);
             if ($datos['id_ciudad'] === '') {
-                consulta(
-                    'INSERT INTO ciudad (nombre, departamento, pais, codigo_postal) VALUES (?, ?, ?, ?)',
-                    $params
-                );
+                consulta('INSERT INTO ciudad (nombre, departamento, pais, codigo_postal) VALUES (?, ?, ?, ?)', $params);
                 flash('ok', 'Ciudad registrada.');
             } else {
                 $params[] = (int)$datos['id_ciudad'];
-                consulta(
-                    'UPDATE ciudad SET nombre = ?, departamento = ?, pais = ?, codigo_postal = ? WHERE id_ciudad = ?',
-                    $params
-                );
+                consulta('UPDATE ciudad SET nombre = ?, departamento = ?, pais = ?, codigo_postal = ? WHERE id_ciudad = ?', $params);
                 flash('ok', 'Ciudad actualizada.');
             }
             redirigir('ciudades.php');
@@ -93,23 +50,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errores[] = mensaje_error_bd($e);
         }
     }
-
     $accion = 'formulario';
 }
-
-/* ============================================================================
- * 2. PREPARACIÓN Y RENDERIZADO DE VISTAS
- * ============================================================================ */
 
 if ($accion === 'editar') {
-    $datos = fila('SELECT * FROM ciudad WHERE id_ciudad = ?', array((int)get('id')));
-    if (!$datos) {
-        flash('error', 'La ciudad no existe.');
-        redirigir('ciudades.php');
-    }
+    $datos  = buscar_o_volver('SELECT * FROM ciudad WHERE id_ciudad = ?', (int)get('id'), 'La ciudad no existe.', 'ciudades.php');
     $accion = 'formulario';
 }
-
 if ($accion === 'nueva') {
     $accion = 'formulario';
 }
@@ -118,6 +65,7 @@ $titulo = 'Ciudades';
 $activo = 'ciudades.php';
 include 'includes/encabezado.php';
 
+// ---------- Formulario de nueva / editar ----------
 if ($accion === 'formulario'): ?>
     <div class="encabezado">
         <h1><?= $datos['id_ciudad'] === '' ? 'Nueva ciudad' : 'Editar ciudad' ?></h1>
@@ -127,7 +75,6 @@ if ($accion === 'formulario'): ?>
 
     <form method="post" class="tarjeta formulario">
         <?= csrf_campo() ?>
-        <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_ciudad" value="<?= h($datos['id_ciudad']) ?>">
 
         <div>
@@ -157,14 +104,13 @@ if ($accion === 'formulario'): ?>
     </form>
 
 <?php else:
+    // ---------- Lista con búsqueda ----------
     $q = get('q');
     $lista = filas(
-        "SELECT
-             ci.*,
-             (SELECT COUNT(*) FROM cliente c WHERE c.id_ciudad = ci.id_ciudad) AS clientes
+        'SELECT ci.*, (SELECT COUNT(*) FROM cliente c WHERE c.id_ciudad = ci.id_ciudad) AS clientes
          FROM ciudad ci
          WHERE ci.nombre ILIKE ? OR ci.departamento ILIKE ?
-         ORDER BY ci.nombre",
+         ORDER BY ci.nombre',
         array("%$q%", "%$q%")
     );
 ?>
@@ -206,20 +152,13 @@ if ($accion === 'formulario'): ?>
                             <td class="num"><?= $c['clientes'] ?></td>
                             <td class="acciones">
                                 <a class="boton secundario chico" href="ciudades.php?accion=editar&id=<?= $c['id_ciudad'] ?>">Editar</a>
-                                <form method="post" onsubmit="return confirm(<?= js('¿Eliminar la ciudad ' . $c['nombre'] . '?') ?>)">
-                                    <?= csrf_campo() ?>
-                                    <input type="hidden" name="accion" value="eliminar">
-                                    <input type="hidden" name="id_ciudad" value="<?= $c['id_ciudad'] ?>">
-                                    <button class="boton peligro chico">Eliminar</button>
-                                </form>
+                                <?= boton_post(array('accion' => 'eliminar', 'id_ciudad' => $c['id_ciudad']), '¿Eliminar la ciudad ' . $c['nombre'] . '?') ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
 
                     <?php if (!$lista): ?>
-                        <tr>
-                            <td colspan="7" class="vacio">No hay ciudades que coincidan.</td>
-                        </tr>
+                        <tr><td colspan="7" class="vacio">No hay ciudades que coincidan.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>

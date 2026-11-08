@@ -1,36 +1,29 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/config.php
- * DESCRIPCIÓN:
- *   Configuración central de la conexión a PostgreSQL y parámetros globales.
- *   Soporta tanto despliegue en la nube (Railway mediante DATABASE_URL) como
- *   ejecución local.
- * ============================================================================
+ * A qué base de datos se conecta la página.
+ *
+ * Usa la variable de entorno DATABASE_URL (Railway la define). Si no existe, usa la
+ * base de Railway escrita abajo. Para correrla en un computador con la base local:
+ *     DATABASE_URL=postgresql://app_ventas:ventas2026@localhost:5432/proyecto php -S localhost:8000
  */
 
-// 1. URL de conexión a PostgreSQL en Railway (usada por defecto si no se define otra)
-$urlPorDefecto = 'postgresql://postgres:bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ@ballast.proxy.rlwy.net:49477/railway';
-$urlEntorno    = getenv('DATABASE_URL');
+$url_por_defecto = 'postgresql://postgres:bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ@ballast.proxy.rlwy.net:49477/railway';
+$url = getenv('DATABASE_URL');
 
-// Si existe DATABASE_URL válida en el entorno la usamos; de lo contrario, usamos la de Railway
-if (!$urlEntorno || strpos($urlEntorno, '@host:') !== false) {
-    $databaseUrl = $urlPorDefecto;
-} else {
-    $databaseUrl = $urlEntorno;
+// "@host:" aparece en la URL de ejemplo sin completar: en ese caso también se usa la de Railway.
+if (!$url || strpos($url, '@host:') !== false) {
+    $url = $url_por_defecto;
 }
 
-// 2. Descomponer la URL (postgresql://usuario:clave@servidor:puerto/base_de_datos)
-$partesConexion = parse_url($databaseUrl);
+// postgresql://usuario:clave@servidor:puerto/base  ->  sus partes
+$partes = parse_url($url);
+define('DB_HOST', $partes['host']);
+define('DB_PORT', (string)($partes['port'] ?? 5432));
+define('DB_NAME', ltrim($partes['path'], '/'));
+define('DB_USER', $partes['user']);
+define('DB_PASS', $partes['pass'] ?? '');
 
-define('DB_HOST', $partesConexion['host'] ?? 'ballast.proxy.rlwy.net');
-define('DB_PORT', (string)($partesConexion['port'] ?? '49477'));
-define('DB_NAME', ltrim($partesConexion['path'] ?? 'railway', '/'));
-define('DB_USER', $partesConexion['user'] ?? 'postgres');
-define('DB_PASS', $partesConexion['pass'] ?? 'bHSXhbjGUCeYNCyjIvdyRcXNckEJTRPZ');
-
-// 3. Umbral de inventario para alertas de stock bajo (<= 5 unidades)
+// Desde cuántas unidades un artículo se marca con "stock bajo".
 define('STOCK_BAJO', 5);
 
-// 4. Zona horaria oficial de Colombia
 date_default_timezone_set('America/Bogota');

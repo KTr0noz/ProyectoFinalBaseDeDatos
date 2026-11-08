@@ -1,99 +1,67 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/venta.php
- * DESCRIPCIÓN:
- *   Ficha detallada de una orden de venta:
- *     - Muestra los datos del cliente, dirección de despacho y totales (3FN).
- *     - Permite agregar o quitar artículos en `detalle_venta` mientras la venta
- *       está en estado 'Pendiente'. Al insertar una línea, el disparador
- *       `trg_descontar_stock_venta` valida y descuenta el stock automáticamente.
- *     - Lista los pagos asociados y permite actualizar el estado del pedido.
- * ============================================================================
+ * Ficha de una venta: datos, artículos, pagos y cambio de estado.
+ *   - Solo una venta Pendiente deja agregar o quitar artículos.
+ *   - Al agregar una línea, el disparador trg_descontar_stock_venta revisa y descuenta el stock.
+ *   - Al quitar una línea o cancelar la venta, las unidades vuelven al inventario.
+ *   - Los estados solo avanzan como dice $TRANSICIONES_VENTA (funciones.php).
  */
 
 require_once 'includes/funciones.php';
 require_admin();
 
 $id    = (int)get('id');
-$venta = fila(sql_ventas() . ' WHERE v.id_venta = ?', array($id));
-
+$venta = buscar_venta($id);
 if (!$venta) {
     flash('error', 'La venta no existe.');
     redirigir('ventas.php');
 }
 
+$aqui     = 'venta.php?id=' . $id;
 $editable = ($venta['estado'] === 'Pendiente');
 $errores  = array();
 
-/* ============================================================================
- * 1. PROCESAMIENTO DE ACCIONES POST (ACTUALIZAR ESTADO, AGREGAR O QUITAR LÍNEA)
- * ============================================================================ */
-
+// ---------- Formularios enviados ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_validar()) {
-        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
-        redirigir('venta.php?id=' . $id);
-    }
+    exigir_csrf($aqui);
     $accion = post('accion');
 
-    // 1.1 Actualizar seguimiento (estado y dirección de envío)
+    // 1. Cambiar estado y/o dirección de envío
     if ($accion === 'actualizar') {
+        $actual    = $venta['estado'];
         $estado    = post('estado');
         $direccion = post('direccion_envio');
 
         validar_opcion($estado, 'Estado', $ESTADOS_VENTA, $errores);
         validar_texto($direccion, 'Dirección de envío', 150, $errores);
 
-        $actual = $venta['estado'];
-
         if (!$errores && $estado !== $actual) {
             if (!in_array($estado, $TRANSICIONES_VENTA[$actual], true)) {
                 $errores[] = "No se puede pasar una venta de $actual a $estado.";
-            } elseif ($estado === 'Pagada' && !($venta['total'] > 0 && (float)$venta['pagado'] >= (float)$venta['total'])) {
+            } elseif ($estado === 'Pagada' && !venta_pagada($venta)) {
                 $errores[] = 'La venta no se puede marcar como Pagada: tiene saldo pendiente de '
                            . dinero($venta['total'] - $venta['pagado']) . ' o no tiene artículos.';
             }
         }
 
         if (!$errores) {
-            $pdo = db();
+            $cancelar = ($estado === 'Cancelada' && $actual !== 'Cancelada');
             try {
-                $pdo->beginTransaction();
-
-                consulta(
-                    'UPDATE venta SET estado = ?, direccion_envio = ? WHERE id_venta = ?',
-                    array($estado, $direccion, $id)
-                );
-
-                // Si la venta pasa a 'Cancelada', se restituyen las unidades al inventario
-                if ($estado === 'Cancelada' && $actual !== 'Cancelada') {
-                    consulta(
-                        'UPDATE articulo a
-                         SET stock = a.stock + d.cantidad
-                         FROM detalle_venta d
-                         WHERE d.id_venta = ?
-                           AND d.id_articulo = a.id_articulo',
-                        array($id)
-                    );
-                }
-
-                $pdo->commit();
-
-                $mensaje = ($estado === 'Cancelada' && $actual !== 'Cancelada')
-                    ? 'Venta cancelada y su stock devuelto al inventario.'
-                    : 'Venta actualizada.';
-
-                flash('ok', $mensaje);
-                redirigir('venta.php?id=' . $id);
+                en_transaccion(function () use ($id, $estado, $direccion, $cancelar) {
+                    if ($cancelar) {
+                        devolver_stock_venta($id); // antes de marcarla Cancelada
+                    }
+                    consulta('UPDATE venta SET estado = ?, direccion_envio = ? WHERE id_venta = ?', array($estado, $direccion, $id));
+                });
+                flash('ok', $cancelar ? 'Venta cancelada y su stock devuelto al inventario.' : 'Venta actualizada.');
+                redirigir($aqui);
             } catch (PDOException $e) {
-                $pdo->rollBack();
                 $errores[] = mensaje_error_bd($e);
             }
         }
     }
 
-    // 1.2 Agregar un artículo al detalle de la venta
+    // 2. Agregar un artículo
     if ($accion === 'agregar') {
         $id_articulo = post('id_articulo');
         $cantidad    = post('cantidad');
@@ -108,96 +76,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$errores) {
             try {
-                // El disparador `trg_descontar_stock_venta` verifica y descuenta el stock
-                consulta(
-                    'INSERT INTO detalle_venta (id_venta, id_articulo, cantidad) VALUES (?, ?, ?)',
-                    array($id, (int)$id_articulo, (int)$cantidad)
-                );
+                // El disparador trg_descontar_stock_venta revisa y descuenta el stock (o rechaza la línea)
+                consulta('INSERT INTO detalle_venta (id_venta, id_articulo, cantidad) VALUES (?, ?, ?)',
+                         array($id, (int)$id_articulo, (int)$cantidad));
                 flash('ok', 'Artículo agregado y stock descontado.');
-                redirigir('venta.php?id=' . $id);
+                redirigir($aqui);
             } catch (PDOException $e) {
                 $errores[] = mensaje_error_bd($e);
             }
         }
     }
 
-    // 1.3 Quitar un artículo del detalle de la venta
+    // 3. Quitar un artículo
     if ($accion === 'quitar') {
         $id_articulo = (int)post('id_articulo');
 
         if (!$editable) {
             flash('error', 'Solo se pueden quitar artículos de una venta Pendiente.');
-            redirigir('venta.php?id=' . $id);
+            redirigir($aqui);
         }
 
-        // Verifica que el nuevo total no quede por debajo de los pagos ya comprometidos
+        // El total nuevo no puede quedar por debajo de los pagos ya registrados
         $subtotal = (float)valor(
-            'SELECT d.cantidad * a.precio
-             FROM detalle_venta d
-             JOIN articulo a ON a.id_articulo = d.id_articulo
+            'SELECT d.cantidad * a.precio FROM detalle_venta d JOIN articulo a ON a.id_articulo = d.id_articulo
              WHERE d.id_venta = ? AND d.id_articulo = ?',
             array($id, $id_articulo)
         );
-
+        $total_nuevo  = $venta['total'] - $subtotal;
         $comprometido = pagos_comprometidos($id);
-
-        if ($venta['total'] - $subtotal < $comprometido - 0.001) {
-            flash(
-                'error',
-                'No se puede quitar el artículo: el total quedaría en ' . dinero($venta['total'] - $subtotal)
-                . ' y la venta ya tiene pagos por ' . dinero($comprometido) . '. Elimine o rechace primero esos pagos.'
-            );
-            redirigir('venta.php?id=' . $id);
+        if ($total_nuevo < $comprometido - 0.001) {
+            flash('error', 'No se puede quitar el artículo: el total quedaría en ' . dinero($total_nuevo)
+                . ' y la venta ya tiene pagos por ' . dinero($comprometido) . '. Elimine o rechace primero esos pagos.');
+            redirigir($aqui);
         }
 
-        $pdo = db();
         try {
-            $pdo->beginTransaction();
-
-            $cantidad = valor(
-                'DELETE FROM detalle_venta WHERE id_venta = ? AND id_articulo = ? RETURNING cantidad',
-                array($id, $id_articulo)
-            );
-
-            if ($cantidad !== false) {
-                consulta(
-                    'UPDATE articulo SET stock = stock + ? WHERE id_articulo = ?',
-                    array((int)$cantidad, $id_articulo)
-                );
-            }
-
-            $pdo->commit();
+            en_transaccion(function () use ($id, $id_articulo) {
+                $cantidad = valor('DELETE FROM detalle_venta WHERE id_venta = ? AND id_articulo = ? RETURNING cantidad',
+                                  array($id, $id_articulo));
+                if ($cantidad !== false) {
+                    consulta('UPDATE articulo SET stock = stock + ? WHERE id_articulo = ?', array((int)$cantidad, $id_articulo));
+                }
+            });
             flash('ok', 'Artículo quitado y stock devuelto.');
         } catch (PDOException $e) {
-            $pdo->rollBack();
             flash('error', mensaje_error_bd($e));
         }
-
-        redirigir('venta.php?id=' . $id);
+        redirigir($aqui);
     }
 }
 
-/* ============================================================================
- * 2. CONSULTA DE LÍNEAS DE DETALLE, PAGOS Y CATÁLOGO
- * ============================================================================ */
-
-$lineas = filas(
-    'SELECT
-         d.id_articulo,
-         d.cantidad,
-         a.nombre,
-         a.precio,
-         (d.cantidad * a.precio) AS subtotal
-     FROM detalle_venta d
-     JOIN articulo a ON a.id_articulo = d.id_articulo
-     WHERE d.id_venta = ?
-     ORDER BY a.nombre',
-    array($id)
-);
-
-$pagos     = filas('SELECT * FROM forma_pago WHERE id_venta = ? ORDER BY fecha_pago, id_pago', array($id));
-$articulos = filas('SELECT id_articulo, nombre, precio, stock FROM articulo ORDER BY nombre');
-$saldo     = $venta['total'] - $venta['pagado'];
+// ---------- Datos para mostrar ----------
+$lineas     = lineas_venta($id);
+$pagos      = pagos_venta($id);
+$articulos  = filas('SELECT id_articulo, nombre, precio, stock FROM articulo ORDER BY nombre');
+$saldo      = $venta['total'] - $venta['pagado'];
+$siguientes = $TRANSICIONES_VENTA[$venta['estado']];
+$acepta_pago = in_array($venta['estado'], $VENTA_ACEPTA_PAGOS, true) && $venta['total'] > 0 && $saldo > 0;
 
 $titulo = 'Venta #' . $id;
 $activo = 'ventas.php';
@@ -209,18 +144,14 @@ include 'includes/encabezado.php';
         <h1>Venta #<?= $id ?> <?= etiqueta_estado($venta['estado']) ?></h1>
         <p class="subtitulo"><a href="ventas.php">← Volver a ventas</a></p>
     </div>
-
-    <form method="post" action="ventas.php" onsubmit="return confirm(<?= js('¿Eliminar la venta #' . $id . '? Sus artículos vuelven al inventario.') ?>)">
-        <?= csrf_campo() ?>
-        <input type="hidden" name="accion" value="eliminar">
-        <input type="hidden" name="id_venta" value="<?= $id ?>">
-        <button class="boton peligro">Eliminar venta</button>
-    </form>
+    <?= boton_post(array('accion' => 'eliminar', 'id_venta' => $id),
+                   '¿Eliminar la venta #' . $id . '? Sus artículos vuelven al inventario.',
+                   'Eliminar venta', 'boton peligro', 'ventas.php') ?>
 </div>
 
 <?php mostrar_errores($errores); ?>
 
-<!-- 1. Resumen general de la orden -->
+<!-- Resumen -->
 <section class="tarjeta">
     <div class="datos">
         <div>
@@ -239,22 +170,13 @@ include 'includes/encabezado.php';
     </div>
 
     <div class="resumen">
-        <div>
-            <div class="valor"><?= dinero($venta['total']) ?></div>
-            <div class="nombre">Total (calculado)</div>
-        </div>
-        <div>
-            <div class="valor"><?= dinero($venta['pagado']) ?></div>
-            <div class="nombre">Pagado (aprobado)</div>
-        </div>
-        <div>
-            <div class="valor <?= $saldo > 0 ? 'stock-bajo' : '' ?>"><?= dinero($saldo) ?></div>
-            <div class="nombre">Saldo</div>
-        </div>
+        <div><div class="valor"><?= dinero($venta['total']) ?></div><div class="nombre">Total (calculado)</div></div>
+        <div><div class="valor"><?= dinero($venta['pagado']) ?></div><div class="nombre">Pagado (aprobado)</div></div>
+        <div><div class="valor <?= $saldo > 0 ? 'stock-bajo' : '' ?>"><?= dinero($saldo) ?></div><div class="nombre">Saldo</div></div>
     </div>
 </section>
 
-<!-- 2. Artículos de la venta (detalle_venta) -->
+<!-- Artículos (detalle_venta) -->
 <section class="tarjeta">
     <h2>Artículos</h2>
 
@@ -278,21 +200,14 @@ include 'includes/encabezado.php';
                         <td class="num"><?= dinero($l['subtotal']) ?></td>
                         <td class="acciones">
                             <?php if ($editable): ?>
-                                <form method="post" onsubmit="return confirm(<?= js('¿Quitar ' . $l['nombre'] . ' de la venta?') ?>)">
-                                    <?= csrf_campo() ?>
-                                    <input type="hidden" name="accion" value="quitar">
-                                    <input type="hidden" name="id_articulo" value="<?= $l['id_articulo'] ?>">
-                                    <button class="boton peligro chico">Quitar</button>
-                                </form>
+                                <?= boton_post(array('accion' => 'quitar', 'id_articulo' => $l['id_articulo']), '¿Quitar ' . $l['nombre'] . ' de la venta?', 'Quitar') ?>
                             <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
 
                 <?php if (!$lineas): ?>
-                    <tr>
-                        <td colspan="5" class="vacio">La venta aún no tiene artículos.</td>
-                    </tr>
+                    <tr><td colspan="5" class="vacio">La venta aún no tiene artículos.</td></tr>
                 <?php endif; ?>
             </tbody>
             <tfoot>
@@ -332,11 +247,11 @@ include 'includes/encabezado.php';
     <?php endif; ?>
 </section>
 
-<!-- 3. Pagos asociados a la venta (forma_pago) -->
+<!-- Pagos (forma_pago) -->
 <section class="tarjeta">
     <div class="encabezado" style="margin-bottom:10px">
         <h2 style="margin:0">Pagos</h2>
-        <?php if (in_array($venta['estado'], $VENTA_ACEPTA_PAGOS, true) && $venta['total'] > 0 && $saldo > 0): ?>
+        <?php if ($acepta_pago): ?>
             <a class="boton chico" href="pagos.php?accion=nuevo&venta=<?= $id ?>">+ Registrar pago</a>
         <?php endif; ?>
     </div>
@@ -368,16 +283,14 @@ include 'includes/encabezado.php';
                 <?php endforeach; ?>
 
                 <?php if (!$pagos): ?>
-                    <tr>
-                        <td colspan="6" class="vacio">Sin pagos registrados.</td>
-                    </tr>
+                    <tr><td colspan="6" class="vacio">Sin pagos registrados.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
     </div>
 </section>
 
-<!-- 4. Actualización del seguimiento de la venta -->
+<!-- Cambiar estado / dirección -->
 <section class="tarjeta">
     <h2>Actualizar seguimiento</h2>
 
@@ -387,11 +300,10 @@ include 'includes/encabezado.php';
 
         <div>
             <label for="estado">Estado</label>
-            <?php $permitidos = array_merge(array($venta['estado']), $TRANSICIONES_VENTA[$venta['estado']]); ?>
             <select id="estado" name="estado">
-                <?= opciones_simples($permitidos, $venta['estado']) ?>
+                <?= opciones_simples(array_merge(array($venta['estado']), $siguientes), $venta['estado']) ?>
             </select>
-            <?php if (!$TRANSICIONES_VENTA[$venta['estado']]): ?>
+            <?php if (!$siguientes): ?>
                 <div class="ayuda">Estado final: ya no cambia.</div>
             <?php endif; ?>
         </div>

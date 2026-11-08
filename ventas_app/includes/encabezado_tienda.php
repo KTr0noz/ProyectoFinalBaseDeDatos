@@ -1,15 +1,20 @@
 <?php
+/**
+ * Parte de arriba de las páginas del cliente: <head> y barra con el menú de la tienda.
+ * Antes de incluirlo, la página define $titulo y $activo.
+ */
 
-$usuario_tienda = usuario_actual();
-$unidades_carrito = 0;
-if (!empty($_SESSION['carrito']) && is_array($_SESSION['carrito'])) {
-    foreach ($_SESSION['carrito'] as $cant_item) {
-        $unidades_carrito += (int)$cant_item;
-    }
-}
+$menu = array(
+    'tienda.php'      => 'Catálogo',
+    'carrito.php'     => 'Carrito',
+    'mis_compras.php' => 'Mis compras',
+    'mis_datos.php'   => 'Mis datos',
+);
+$usuario          = usuario_actual();
+$unidades_carrito = array_sum(array_map('intval', $_SESSION['carrito'] ?? array()));
 
-// Nombre del artículo recién agregado: se muestra una sola vez en la ventanita de abajo a la derecha.
-$aviso_carrito = isset($_SESSION['aviso_carrito']) ? (string)$_SESSION['aviso_carrito'] : '';
+// Nombre del artículo recién agregado: la ventanita "¿Quieres ir al carrito?" sale una sola vez.
+$aviso_carrito = (string)($_SESSION['aviso_carrito'] ?? '');
 unset($_SESSION['aviso_carrito']);
 ?><!doctype html>
 <html lang="es">
@@ -19,7 +24,7 @@ unset($_SESSION['aviso_carrito']);
     <title><?= h($titulo) ?> · Tienda · Ventas por Internet</title>
     <link rel="preload" href="css/fuentes/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="css/estilos.css">
-    <script src="js/tienda.js" defer></script>
+    <script src="js/app.js" defer></script>
 </head>
 <body>
 <a class="saltar" href="#contenido">Saltar al contenido</a>
@@ -32,23 +37,20 @@ unset($_SESSION['aviso_carrito']);
             </a>
 
             <nav class="nav-tienda" aria-label="Menú de tienda">
-                <a href="tienda.php"<?= $activo === 'tienda.php' ? ' class="activo" aria-current="page"' : '' ?>>Catálogo</a>
-                <a href="carrito.php"<?= $activo === 'carrito.php' ? ' class="activo" aria-current="page"' : '' ?>>
-                    Carrito<?php if ($unidades_carrito > 0): ?> <span class="contador-carrito"><?= $unidades_carrito ?></span><?php endif; ?>
-                </a>
-                <a href="mis_compras.php"<?= $activo === 'mis_compras.php' ? ' class="activo" aria-current="page"' : '' ?>>Mis compras</a>
-                <a href="mis_datos.php"<?= $activo === 'mis_datos.php' ? ' class="activo" aria-current="page"' : '' ?>>Mis datos</a>
+                <?php foreach ($menu as $archivo => $texto): ?>
+                    <a href="<?= $archivo ?>"<?= $activo === $archivo ? ' class="activo" aria-current="page"' : '' ?>>
+                        <?= $texto ?><?php if ($archivo === 'carrito.php' && $unidades_carrito > 0): ?> <span class="contador-carrito"><?= $unidades_carrito ?></span><?php endif; ?>
+                    </a>
+                <?php endforeach; ?>
             </nav>
 
-            <?php if ($usuario_tienda): ?>
-                <div class="usuario-tienda">
-                    <span class="nombre-usuario-tienda"><?= h($usuario_tienda['nombre'] . ' ' . $usuario_tienda['apellido']) ?></span>
-                    <form method="post" action="salir.php">
-                        <?= csrf_campo() ?>
-                        <button class="boton-riel-salir">Salir</button>
-                    </form>
-                </div>
-            <?php endif; ?>
+            <div class="usuario-tienda">
+                <span class="nombre-usuario-tienda"><?= h($usuario['nombre'] . ' ' . $usuario['apellido']) ?></span>
+                <form method="post" action="salir.php">
+                    <?= csrf_campo() ?>
+                    <button class="boton-riel-salir">Salir</button>
+                </form>
+            </div>
         </div>
     </header>
 
@@ -64,4 +66,3 @@ unset($_SESSION['aviso_carrito']);
                     <a class="boton chico" href="carrito.php">Ir al carrito</a>
                 </div>
             <?php endif; ?>
-

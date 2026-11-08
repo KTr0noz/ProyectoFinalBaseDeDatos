@@ -1,15 +1,9 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/mis_datos.php
- * DESCRIPCIÓN:
- *   El cliente corrige sus propios datos (nombre, apellido, correo, teléfono,
- *   dirección y ciudad) por si quedaron mal al crear la cuenta.
- *   - rol_cliente no tiene UPDATE sobre cliente: el cambio lo hace la función
- *     fn_actualizar_mis_datos (SECURITY DEFINER), que solo toca la fila del
- *     cliente en sesión (app.id_cliente).
- *   - La cédula no se puede cambiar aquí porque es la llave de sus ventas.
- * ============================================================================
+ * Mis datos: el cliente corrige nombre, apellido, correo, teléfono, dirección y ciudad.
+ *   - rol_cliente no tiene UPDATE sobre cliente. El cambio lo hace fn_actualizar_mis_datos
+ *     (SECURITY DEFINER), que solo modifica la fila del cliente en sesión (app.id_cliente).
+ *   - La cédula no se cambia aquí porque es la llave de sus ventas.
  */
 
 require_once 'includes/funciones.php';
@@ -20,15 +14,7 @@ $errores = array();
 $datos   = $cliente;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $datos = array(
-        'id_cliente' => (string)$cliente['id_cliente'],
-        'nombre'     => post('nombre'),
-        'apellido'   => post('apellido'),
-        'email'      => mb_strtolower(post('email'), 'UTF-8'),
-        'telefono'   => post('telefono'),
-        'direccion'  => post('direccion'),
-        'id_ciudad'  => post('id_ciudad'),
-    );
+    $datos = array('id_cliente' => (string)$cliente['id_cliente']) + datos_cliente_del_formulario();
 
     if (!csrf_validar()) {
         $errores[] = 'La sesión del formulario expiró. Intente nuevamente.';
@@ -38,17 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$errores) {
         try {
-            consulta(
-                'SELECT fn_actualizar_mis_datos(?, ?, ?, ?, ?, ?)',
-                array(
-                    $datos['nombre'],
-                    $datos['apellido'],
-                    $datos['email'],
-                    $datos['telefono'],
-                    $datos['direccion'],
-                    (int)$datos['id_ciudad'],
-                )
-            );
+            consulta('SELECT fn_actualizar_mis_datos(?, ?, ?, ?, ?, ?)',
+                     array($datos['nombre'], $datos['apellido'], $datos['email'],
+                           $datos['telefono'], $datos['direccion'], (int)$datos['id_ciudad']));
             flash('ok', 'Tus datos se actualizaron.');
             redirigir('mis_datos.php');
         } catch (PDOException $e) {
@@ -57,10 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$ciudades = array();
-foreach (filas('SELECT id_ciudad, nombre, departamento FROM ciudad ORDER BY nombre') as $c) {
-    $ciudades[$c['id_ciudad']] = $c['nombre'] . ' (' . $c['departamento'] . ')';
-}
+$ciudades = lista_ciudades();
 
 $titulo = 'Mis datos';
 $activo = 'mis_datos.php';

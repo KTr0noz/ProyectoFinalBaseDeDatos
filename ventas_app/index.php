@@ -1,14 +1,9 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/index.php
- * DESCRIPCIÓN:
- *   Pantalla principal (Resumen de la tienda):
- *     1. Bandeja «Por hacer»: tareas operativas generadas automáticamente según
- *        el estado real de las ventas, pagos pendientes y artículos con stock bajo.
- *     2. Embudo de estados: distribución de órdenes y dinero por estado.
- *     3. Indicadores globales y tabla de últimas ventas registradas.
- * ============================================================================
+ * Inicio del administrador:
+ *   1. "Por hacer": tareas que salen solas del estado de ventas, pagos y stock.
+ *   2. Embudo: cuántas ventas y cuánto dinero hay en cada estado.
+ *   3. Cifras generales y últimas ventas.
  */
 
 require_once 'includes/funciones.php';
@@ -16,154 +11,78 @@ require_admin();
 
 $ventas_sql = sql_ventas();
 
-/* ============================================================================
- * 1. CONSTRUCCIÓN DE LA BANDEJA «POR HACER»
- * ============================================================================ */
-
+// ---------- 1. Bandeja "Por hacer" ----------
 $tareas = array();
 
-// 1.1 Ventas pendientes con saldo por cobrar
-$ventasPendientesConSaldo = filas(
-    $ventas_sql . " WHERE v.estado = 'Pendiente'
-                      AND COALESCE(t.total, 0) > 0
-                      AND COALESCE(t.total, 0) > COALESCE(p.pagado, 0)
-                    ORDER BY v.fecha, v.id_venta"
-);
-
-foreach ($ventasPendientesConSaldo as $v) {
-    $saldo = $v['total'] - $v['pagado'];
-    $en_espera = (float)valor(
-        "SELECT COALESCE(SUM(monto), 0)
-         FROM forma_pago
-         WHERE id_venta = ? AND estado = 'Pendiente'",
-        array($v['id_venta'])
-    );
-
-    $tareas[] = array(
-        'tipo'    => 'cobrar',
-        'que'     => 'Cobrar la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
-        'detalle' => 'Pendiente desde el ' . fecha($v['fecha']) . ', saldo ' . dinero($saldo)
-                     . ($en_espera > 0 ? ' (hay ' . dinero($en_espera) . ' en pagos por aprobar)' : ''),
-        'enlace'  => 'venta.php?id=' . $v['id_venta'],
-        'boton'   => 'Ver venta',
-    );
+/** Agrega una tarea: $tipo da el color de la franja (cobrar, aprobar, despachar, entregar, reponer). */
+function tarea(&$tareas, $tipo, $que, $detalle, $enlace, $boton)
+{
+    $tareas[] = compact('tipo', 'que', 'detalle', 'enlace', 'boton');
 }
 
-// 1.2 Pagos en estado 'Pendiente' que requieren aprobación o rechazo
-$pagosPorAprobar = filas(
-    "SELECT p.id_pago, p.tipo, p.monto, p.fecha_pago, p.id_venta
-     FROM forma_pago p
-     JOIN venta v ON v.id_venta = p.id_venta
-     WHERE p.estado = 'Pendiente'
-       AND v.estado IN ('Pendiente', 'Pagada')
-     ORDER BY p.fecha_pago, p.id_pago"
-);
-
-foreach ($pagosPorAprobar as $p) {
-    $tareas[] = array(
-        'tipo'    => 'aprobar',
-        'que'     => 'Aprobar o rechazar el pago #' . $p['id_pago'] . ' por ' . $p['tipo'],
-        'detalle' => dinero($p['monto']) . ' para la venta #' . $p['id_venta'] . ', registrado el ' . fecha($p['fecha_pago']),
-        'enlace'  => 'pagos.php?accion=editar&id=' . $p['id_pago'],
-        'boton'   => 'Revisar pago',
-    );
+// Ventas Pendientes con artículos y saldo por cobrar
+foreach (filas($ventas_sql . " WHERE v.estado = 'Pendiente' AND COALESCE(t.total, 0) > 0
+                                AND COALESCE(t.total, 0) > COALESCE(p.pagado, 0)
+                              ORDER BY v.fecha, v.id_venta") as $v) {
+    $en_espera = (float)valor("SELECT COALESCE(SUM(monto), 0) FROM forma_pago WHERE id_venta = ? AND estado = 'Pendiente'",
+                              array($v['id_venta']));
+    tarea($tareas, 'cobrar', 'Cobrar la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
+          'Pendiente desde el ' . fecha($v['fecha']) . ', saldo ' . dinero($v['total'] - $v['pagado'])
+          . ($en_espera > 0 ? ' (hay ' . dinero($en_espera) . ' en pagos por aprobar)' : ''),
+          'venta.php?id=' . $v['id_venta'], 'Ver venta');
 }
 
-// 1.3 Ventas en estado 'Pagada' listas para despachar
-$ventasPorDespachar = filas($ventas_sql . " WHERE v.estado = 'Pagada' ORDER BY v.fecha, v.id_venta");
-
-foreach ($ventasPorDespachar as $v) {
-    $tareas[] = array(
-        'tipo'    => 'despachar',
-        'que'     => 'Despachar la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
-        'detalle' => 'Pagada por ' . dinero($v['total']) . '. Enviar a ' . $v['direccion_envio'] . ', ' . $v['ciudad'],
-        'enlace'  => 'venta.php?id=' . $v['id_venta'],
-        'boton'   => 'Abrir venta',
-    );
+// Pagos Pendientes por aprobar o rechazar (de ventas que aún reciben pagos)
+foreach (filas("SELECT p.id_pago, p.tipo, p.monto, p.fecha_pago, p.id_venta
+                FROM forma_pago p JOIN venta v ON v.id_venta = p.id_venta
+                WHERE p.estado = 'Pendiente' AND v.estado IN ('Pendiente', 'Pagada')
+                ORDER BY p.fecha_pago, p.id_pago") as $p) {
+    tarea($tareas, 'aprobar', 'Aprobar o rechazar el pago #' . $p['id_pago'] . ' por ' . $p['tipo'],
+          dinero($p['monto']) . ' para la venta #' . $p['id_venta'] . ', registrado el ' . fecha($p['fecha_pago']),
+          'pagos.php?accion=editar&id=' . $p['id_pago'], 'Revisar pago');
 }
 
-// 1.4 Ventas en estado 'Enviada' pendientes de confirmación de entrega
-$ventasPorEntregar = filas($ventas_sql . " WHERE v.estado = 'Enviada' ORDER BY v.fecha, v.id_venta");
-
-foreach ($ventasPorEntregar as $v) {
-    $tareas[] = array(
-        'tipo'    => 'entregar',
-        'que'     => 'Confirmar la entrega de la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
-        'detalle' => 'En camino a ' . $v['direccion_envio'] . ', ' . $v['ciudad'],
-        'enlace'  => 'venta.php?id=' . $v['id_venta'],
-        'boton'   => 'Abrir venta',
-    );
+// Ventas Pagadas: falta despacharlas
+foreach (filas($ventas_sql . " WHERE v.estado = 'Pagada' ORDER BY v.fecha, v.id_venta") as $v) {
+    tarea($tareas, 'despachar', 'Despachar la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
+          'Pagada por ' . dinero($v['total']) . '. Enviar a ' . $v['direccion_envio'] . ', ' . $v['ciudad'],
+          'venta.php?id=' . $v['id_venta'], 'Abrir venta');
 }
 
-// 1.5 Ventas en borrador ('Pendiente') que aún no tienen artículos asociados
-$ventasSinArticulos = filas(
-    $ventas_sql . " WHERE v.estado = 'Pendiente' AND COALESCE(t.total, 0) = 0 ORDER BY v.fecha, v.id_venta"
-);
-
-foreach ($ventasSinArticulos as $v) {
-    $tareas[] = array(
-        'tipo'    => 'aprobar',
-        'que'     => 'Agregar artículos a la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
-        'detalle' => 'Creada el ' . fecha($v['fecha']) . ' y todavía sin artículos',
-        'enlace'  => 'venta.php?id=' . $v['id_venta'],
-        'boton'   => 'Ver venta',
-    );
+// Ventas Enviadas: falta confirmar la entrega
+foreach (filas($ventas_sql . " WHERE v.estado = 'Enviada' ORDER BY v.fecha, v.id_venta") as $v) {
+    tarea($tareas, 'entregar', 'Confirmar la entrega de la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
+          'En camino a ' . $v['direccion_envio'] . ', ' . $v['ciudad'],
+          'venta.php?id=' . $v['id_venta'], 'Abrir venta');
 }
 
-// 1.6 Artículos con stock igual o inferior al umbral STOCK_BAJO
-$stock_bajo = filas(
-    'SELECT a.id_articulo, a.nombre, a.stock, c.nombre AS categoria
-     FROM articulo a
-     JOIN categoria c ON c.id_categoria = a.id_categoria
-     WHERE a.stock <= ?
-     ORDER BY a.stock, a.nombre',
-    array(STOCK_BAJO)
-);
+// Ventas Pendientes todavía sin artículos
+foreach (filas($ventas_sql . " WHERE v.estado = 'Pendiente' AND COALESCE(t.total, 0) = 0 ORDER BY v.fecha, v.id_venta") as $v) {
+    tarea($tareas, 'aprobar', 'Agregar artículos a la venta #' . $v['id_venta'] . ' de ' . $v['cliente'],
+          'Creada el ' . fecha($v['fecha']) . ' y todavía sin artículos',
+          'venta.php?id=' . $v['id_venta'], 'Ver venta');
+}
 
+// Artículos con STOCK_BAJO unidades o menos
+$stock_bajo = filas('SELECT a.id_articulo, a.nombre, a.stock, c.nombre AS categoria
+                     FROM articulo a JOIN categoria c ON c.id_categoria = a.id_categoria
+                     WHERE a.stock <= ? ORDER BY a.stock, a.nombre', array(STOCK_BAJO));
 foreach ($stock_bajo as $a) {
-    $detalleStock = ($a['stock'] == 0)
-        ? 'Sin unidades'
-        : 'Quedan ' . $a['stock'] . ($a['stock'] == 1 ? ' unidad' : ' unidades');
-
-    $tareas[] = array(
-        'tipo'    => 'reponer',
-        'que'     => 'Reponer ' . $a['nombre'],
-        'detalle' => $detalleStock . ', categoría ' . $a['categoria'],
-        'enlace'  => 'articulos.php?accion=editar&id=' . $a['id_articulo'],
-        'boton'   => 'Editar artículo',
-    );
+    $quedan = $a['stock'] == 0 ? 'Sin unidades' : 'Quedan ' . $a['stock'] . ($a['stock'] == 1 ? ' unidad' : ' unidades');
+    tarea($tareas, 'reponer', 'Reponer ' . $a['nombre'], $quedan . ', categoría ' . $a['categoria'],
+          'articulos.php?accion=editar&id=' . $a['id_articulo'], 'Editar artículo');
 }
 
-/* ============================================================================
- * 2. EMBUDO DE ESTADOS Y CIFRAS GENERALES
- * ============================================================================ */
-
-$embudo = array();
-foreach ($ESTADOS_VENTA as $e) {
-    $embudo[$e] = array('n' => 0, 'monto' => 0);
+// ---------- 2. Embudo: ventas y dinero por estado ----------
+$embudo = array_fill_keys($ESTADOS_VENTA, array('n' => 0, 'monto' => 0));
+foreach (filas('SELECT estado, COUNT(*) AS n, COALESCE(SUM(total), 0) AS monto FROM (' . $ventas_sql . ') s GROUP BY estado') as $f) {
+    $embudo[$f['estado']] = array('n' => (int)$f['n'], 'monto' => (float)$f['monto']);
 }
-
-$resumenPorEstado = filas(
-    'SELECT estado, COUNT(*) AS n, COALESCE(SUM(total), 0) AS monto
-     FROM (' . $ventas_sql . ') s
-     GROUP BY estado'
-);
-
-foreach ($resumenPorEstado as $f) {
-    $embudo[$f['estado']] = array(
-        'n'     => (int)$f['n'],
-        'monto' => (float)$f['monto'],
-    );
-}
-
 $monto_total = array_sum(array_column($embudo, 'monto'));
 
+// ---------- 3. Cifras generales ----------
 $recaudado  = valor("SELECT COALESCE(SUM(monto), 0) FROM forma_pago WHERE estado = 'Aprobado'");
-$por_cobrar = valor(
-    'SELECT COALESCE(SUM(total - pagado), 0)
-     FROM (' . $ventas_sql . ") s
-     WHERE estado <> 'Cancelada' AND total > pagado"
-);
+$por_cobrar = valor('SELECT COALESCE(SUM(total - pagado), 0) FROM (' . $ventas_sql . ") s WHERE estado <> 'Cancelada' AND total > pagado");
 $clientes   = valor('SELECT COUNT(*) FROM cliente');
 $articulos  = valor('SELECT COUNT(*) FROM articulo');
 $ultimas    = filas($ventas_sql . ' ORDER BY v.fecha DESC, v.id_venta DESC LIMIT 6');

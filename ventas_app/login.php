@@ -1,22 +1,21 @@
 <?php
+/**
+ * Inicio de sesión con correo y contraseña. Lleva al panel (admin) o a la tienda (cliente).
+ *   - Las contraseñas se guardan con password_hash (bcrypt) y se revisan con password_verify.
+ *   - Si el correo no existe se compara igual contra un hash de relleno, para que la respuesta
+ *     tarde lo mismo y no se pueda adivinar qué correos están registrados.
+ *   - 5 intentos fallidos bloquean el correo 5 minutos (auth.php).
+ */
 
 require_once 'includes/funciones.php';
-
-cabeceras_no_cache();
-verificar_inactividad_sesion();
-
-if (!empty($_SESSION['id_cliente']) && !empty($_SESSION['rol'])) {
-    redirigir($_SESSION['rol'] === 'admin' ? 'index.php' : 'tienda.php');
-}
-
-aplicar_rol_bd('visitante');
+solo_visitantes();
 
 $errores = array();
 $email   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = mb_strtolower(post('email'), 'UTF-8');
-    $clave = isset($_POST['clave']) ? (string)$_POST['clave'] : '';
+    $clave = (string)($_POST['clave'] ?? '');
 
     if (!csrf_validar()) {
         $errores[] = 'La sesión del formulario expiró. Intente nuevamente.';
@@ -24,31 +23,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         usleep(250000);
         $errores[] = 'Demasiados intentos fallidos. Espere 5 minutos antes de intentar nuevamente.';
     } else {
-        // Hash señuelo fijo para igualar el tiempo de cómputo cuando el correo no existe o no tiene clave.
+        $cliente = $email === '' ? false
+            : fila('SELECT id_cliente, password_hash, rol FROM cliente WHERE LOWER(email) = ?', array($email));
+        $tiene_clave = $cliente && !empty($cliente['password_hash']);
+
         $hash_relleno = '$2y$10$usesomesillystringfore7hnbRJHxXVLeakoG8K30oukPsA.ztMG';
+        $clave_ok = $clave !== '' && strlen($clave) <= 72
+            && password_verify($clave, $tiene_clave ? $cliente['password_hash'] : $hash_relleno);
 
-        $cliente = false;
-        if ($email !== '') {
-            $cliente = fila(
-                'SELECT id_cliente, email, password_hash, rol
-                 FROM cliente
-                 WHERE LOWER(email) = ?',
-                array($email)
-            );
-        }
-
-        $hash_comparar = ($cliente && !empty($cliente['password_hash']))
-            ? $cliente['password_hash']
-            : $hash_relleno;
-
-        $verificado = ($clave !== '' && strlen($clave) <= 72)
-            ? password_verify($clave, $hash_comparar)
-            : false;
-
-        if ($cliente && !empty($cliente['password_hash']) && $verificado) {
+        if ($tiene_clave && $clave_ok) {
             registrar_intento_login($email, true);
             iniciar_sesion_usuario($cliente['id_cliente'], $cliente['rol']);
-            redirigir($cliente['rol'] === 'admin' ? 'index.php' : 'tienda.php');
+            redirigir(pagina_inicio($cliente['rol']));
         }
 
         registrar_intento_login($email, false);
@@ -56,27 +42,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errores[] = 'Correo o contraseña incorrectos.';
     }
 }
-?><!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ingresar · Ventas por Internet</title>
-    <link rel="preload" href="css/fuentes/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="css/estilos.css">
-</head>
-<body class="cuerpo-auth">
-<a class="saltar" href="#contenido">Saltar al contenido</a>
 
-<header class="barra-auth">
-    <div class="barra-auth-interior">
-        <a class="marca marca-oscura" href="login.php">
-            <span class="logo">VI</span>
-            Ventas por Internet
-        </a>
-    </div>
-</header>
-
+$titulo = 'Ingresar';
+include 'includes/encabezado_auth.php';
+?>
 <main class="contenedor-auth" id="contenido">
     <section class="panel-auth" aria-labelledby="titulo-login">
         <div class="cabecera-auth">
@@ -107,9 +76,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
     </section>
 </main>
-
-<footer class="pie pie-auth">
-    Proyecto #13 · Sistema de Ventas por Internet · Bases de Datos 2026-II · Universidad de los Llanos
-</footer>
-</body>
-</html>
+<?php include 'includes/pie_auth.php'; ?>

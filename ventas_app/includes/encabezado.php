@@ -1,28 +1,15 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/includes/encabezado.php
- * DESCRIPCIÓN:
- *   Estructura HTML superior y menú lateral de navegación agrupado por módulos.
- *   Variables requeridas antes de incluirlo: $titulo y $activo.
- * ============================================================================
+ * Parte de arriba de las páginas del administrador: <head> y menú lateral.
+ * Antes de incluirlo, la página define $titulo (pestaña del navegador) y $activo (archivo del menú resaltado).
  */
 
 $menu = array(
-    'Operación' => array(
-        'index.php'  => 'Inicio',
-        'ventas.php' => 'Ventas',
-        'pagos.php'  => 'Pagos',
-    ),
-    'Catálogo' => array(
-        'articulos.php'  => 'Artículos',
-        'categorias.php' => 'Categorías',
-    ),
-    'Directorio' => array(
-        'clientes.php' => 'Clientes',
-        'ciudades.php' => 'Ciudades',
-    ),
+    'Operación'  => array('index.php' => 'Inicio', 'ventas.php' => 'Ventas', 'pagos.php' => 'Pagos'),
+    'Catálogo'   => array('articulos.php' => 'Artículos', 'categorias.php' => 'Categorías'),
+    'Directorio' => array('clientes.php' => 'Clientes', 'ciudades.php' => 'Ciudades'),
 );
+$usuario = usuario_actual();
 ?><!doctype html>
 <html lang="es">
 <head>
@@ -31,6 +18,7 @@ $menu = array(
     <title><?= h($titulo) ?> · Ventas por Internet</title>
     <link rel="preload" href="css/fuentes/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="css/estilos.css">
+    <script src="js/app.js" defer></script>
 </head>
 <body>
 <a class="saltar" href="#contenido">Saltar al contenido</a>
@@ -47,26 +35,22 @@ $menu = array(
                 <div class="riel-grupo">
                     <h2><?= h($grupo) ?></h2>
                     <?php foreach ($paginas as $archivo => $texto): ?>
-                        <a href="<?= $archivo ?>"<?= $activo === $archivo ? ' class="activo" aria-current="page"' : '' ?>>
-                            <?= h($texto) ?>
-                        </a>
+                        <a href="<?= $archivo ?>"<?= $activo === $archivo ? ' class="activo" aria-current="page"' : '' ?>><?= h($texto) ?></a>
                     <?php endforeach; ?>
                 </div>
             <?php endforeach; ?>
         </nav>
 
-        <?php $usuario_sesion = usuario_actual(); if ($usuario_sesion): ?>
-            <div class="riel-sesion">
-                <div class="riel-usuario">
-                    <span class="riel-nombre"><?= h($usuario_sesion['nombre'] . ' ' . $usuario_sesion['apellido']) ?></span>
-                    <span class="riel-correo"><?= h($usuario_sesion['email']) ?></span>
-                </div>
-                <form method="post" action="salir.php">
-                    <?= csrf_campo() ?>
-                    <button class="boton-riel-salir">Salir</button>
-                </form>
+        <div class="riel-sesion">
+            <div class="riel-usuario">
+                <span class="riel-nombre"><?= h($usuario['nombre'] . ' ' . $usuario['apellido']) ?></span>
+                <span class="riel-correo"><?= h($usuario['email']) ?></span>
             </div>
-        <?php endif; ?>
+            <form method="post" action="salir.php">
+                <?= csrf_campo() ?>
+                <button class="boton-riel-salir">Salir</button>
+            </form>
+        </div>
     </aside>
 
     <div class="columna">

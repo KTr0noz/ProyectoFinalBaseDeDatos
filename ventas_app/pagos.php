@@ -1,16 +1,11 @@
 <?php
 /**
- * ============================================================================
- * ARCHIVO: ventas_app/pagos.php
- * DESCRIPCIÓN:
- *   Módulo de formas de pago (`forma_pago`):
- *     - Permite listar, filtrar por medio o estado, registrar, editar y eliminar
- *       transacciones de pago asociadas a una venta.
- *     - El disparador `trg_validar_fecha_pago` en PostgreSQL garantiza que
- *       `fecha_pago >= venta.fecha` tanto en INSERT como en UPDATE.
- *     - Al aprobar o modificar pagos, `sincronizar_estado_venta()` actualiza
- *       automáticamente la venta entre 'Pendiente' y 'Pagada'.
- * ============================================================================
+ * Pagos (tabla forma_pago): listar, filtrar, registrar, editar y eliminar.
+ *   - Solo las ventas Pendiente o Pagada reciben o cambian pagos ($VENTA_ACEPTA_PAGOS).
+ *   - La suma de pagos no rechazados no puede pasar del total de la venta.
+ *   - El disparador trg_validar_fecha_pago no deja una fecha de pago anterior a la venta.
+ *   - Después de cada cambio, sincronizar_estado_venta() pasa la venta a Pagada o la regresa a Pendiente.
+ *   - Si se abrió desde una venta (volver=venta), al terminar regresa a esa venta.
  */
 
 require_once 'includes/funciones.php';
@@ -18,54 +13,38 @@ require_admin();
 
 $accion = get('accion');
 $volver = get('volver', post('volver'));
-
 if ($volver === '' && get('venta') !== '') {
     $volver = 'venta';
 }
 
 $errores = array();
-$datos   = array(
-    'id_pago'    => '',
-    'id_venta'   => get('venta'),
-    'tipo'       => 'PSE',
-    'monto'      => '',
-    'fecha_pago' => date('Y-m-d'),
-    'estado'     => 'Aprobado',
-);
+$datos   = array('id_pago' => '', 'id_venta' => get('venta'), 'tipo' => 'PSE', 'monto' => '',
+                 'fecha_pago' => date('Y-m-d'), 'estado' => 'Aprobado');
 
-/** Determina la URL de retorno tras guardar o eliminar un pago. */
+/** A dónde regresar después de guardar o borrar: la venta o la lista de pagos. */
 function destino($volver, $id_venta)
 {
-    return ($volver === 'venta' && $id_venta)
-        ? 'venta.php?id=' . (int)$id_venta
-        : 'pagos.php';
+    return ($volver === 'venta' && $id_venta) ? 'venta.php?id=' . (int)$id_venta : 'pagos.php';
 }
 
-/* ============================================================================
- * 1. PROCESAMIENTO DE FORMULARIOS (POST: ELIMINAR, CREAR O EDITAR PAGO)
- * ============================================================================ */
+/** Venta a la que pertenece un pago y su estado, o false si el pago no existe. */
+function venta_del_pago($id_pago)
+{
+    return fila('SELECT p.id_venta, v.estado FROM forma_pago p JOIN venta v ON v.id_venta = p.id_venta WHERE p.id_pago = ?',
+                array((int)$id_pago));
+}
 
+// ---------- Formularios enviados ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_validar()) {
-        flash('error', 'La sesión del formulario expiró. Intente nuevamente.');
-        redirigir('pagos.php');
-    }
+    exigir_csrf('pagos.php');
 
-    // 1.1 Eliminar un pago existente
+    // 1. Eliminar pago
     if (post('accion') === 'eliminar') {
-        $pago = fila(
-            'SELECT p.id_venta, v.estado
-             FROM forma_pago p
-             JOIN venta v ON v.id_venta = p.id_venta
-             WHERE p.id_pago = ?',
-            array((int)post('id_pago'))
-        );
-
+        $pago = venta_del_pago(post('id_pago'));
         if (!$pago) {
             flash('error', 'El pago no existe.');
             redirigir('pagos.php');
         }
-
         if (!in_array($pago['estado'], $VENTA_ACEPTA_PAGOS, true)) {
             flash('error', 'No se puede eliminar el pago: la venta #' . $pago['id_venta'] . ' está ' . $pago['estado'] . '.');
             redirigir(destino($volver, $pago['id_venta']));
@@ -73,13 +52,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         consulta('DELETE FROM forma_pago WHERE id_pago = ?', array((int)post('id_pago')));
         flash('ok', 'Pago eliminado.');
-
-        // Si la venta estaba 'Pagada' y al borrar el pago ya no cubre el total, vuelve a 'Pendiente'
-        sincronizar_estado_venta($pago['id_venta']);
+        sincronizar_estado_venta($pago['id_venta']); // si estaba Pagada y ya no alcanza, vuelve a Pendiente
         redirigir(destino($volver, $pago['id_venta']));
     }
 
-    // 1.2 Crear o actualizar un pago
+    // 2. Guardar: sin id es nuevo, con id es edición
     $datos = array(
         'id_pago'    => post('id_pago'),
         'id_venta'   => post('id_venta'),
@@ -89,27 +66,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'estado'     => post('estado'),
     );
 
-    $venta = fila(sql_ventas() . ' WHERE v.id_venta = ?', array((int)$datos['id_venta']));
+    $venta = buscar_venta($datos['id_venta']);
     if (!$venta) {
         $errores[] = 'Seleccione la venta a la que corresponde el pago.';
     }
-
     validar_opcion($datos['tipo'], 'Medio de pago', $TIPOS_PAGO, $errores);
     validar_dinero($datos['monto'], 'Monto', $errores);
     validar_fecha($datos['fecha_pago'], 'Fecha de pago', $errores);
     validar_opcion($datos['estado'], 'Estado', $ESTADOS_PAGO, $errores);
 
-    // Si es edición, verificar que la venta original también permita cambios
+    // Al editar, la venta a la que pertenecía el pago también debe aceptar cambios
     $anterior = false;
     if ($datos['id_pago'] !== '') {
-        $anterior = fila(
-            'SELECT p.id_venta, v.estado
-             FROM forma_pago p
-             JOIN venta v ON v.id_venta = p.id_venta
-             WHERE p.id_pago = ?',
-            array((int)$datos['id_pago'])
-        );
-
+        $anterior = venta_del_pago($datos['id_pago']);
         if (!$anterior) {
             $errores[] = 'El pago no existe.';
         } elseif (!in_array($anterior['estado'], $VENTA_ACEPTA_PAGOS, true)) {
@@ -117,13 +86,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Validar saldo disponible de la venta
+    // La venta debe recibir pagos y el monto no puede pasar de lo que falta por pagar
     if ($venta && !$errores) {
         if (!in_array($venta['estado'], $VENTA_ACEPTA_PAGOS, true)) {
             $errores[] = 'La venta #' . $venta['id_venta'] . ' está ' . $venta['estado'] . ': ya no recibe pagos.';
         } elseif ((float)$venta['total'] <= 0) {
             $errores[] = 'La venta #' . $venta['id_venta'] . ' no tiene artículos: agréguelos antes de registrar pagos.';
-        } elseif ($datos['estado'] !== 'Rechazado' && is_numeric($datos['monto'])) {
+        } elseif ($datos['estado'] !== 'Rechazado') {
             $disponible = (float)$venta['total'] - pagos_comprometidos($venta['id_venta'], (int)$datos['id_pago']);
             if ((float)$datos['monto'] > $disponible + 0.001) {
                 $errores[] = 'El monto supera lo que falta por pagar de la venta: máximo ' . dinero(max($disponible, 0)) . '.';
@@ -132,61 +101,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!$errores) {
-        $params = array(
-            $datos['tipo'],
-            $datos['monto'],
-            $datos['fecha_pago'],
-            $datos['estado'],
-            (int)$datos['id_venta'],
-        );
-
+        $params = array($datos['tipo'], $datos['monto'], $datos['fecha_pago'], $datos['estado'], (int)$datos['id_venta']);
         try {
             if ($datos['id_pago'] === '') {
-                consulta(
-                    'INSERT INTO forma_pago (tipo, monto, fecha_pago, estado, id_venta)
-                     VALUES (?, ?, ?, ?, ?)',
-                    $params
-                );
+                consulta('INSERT INTO forma_pago (tipo, monto, fecha_pago, estado, id_venta) VALUES (?, ?, ?, ?, ?)', $params);
                 flash('ok', 'Pago registrado.');
             } else {
                 $params[] = (int)$datos['id_pago'];
-                consulta(
-                    'UPDATE forma_pago
-                     SET tipo = ?, monto = ?, fecha_pago = ?, estado = ?, id_venta = ?
-                     WHERE id_pago = ?',
-                    $params
-                );
+                consulta('UPDATE forma_pago SET tipo = ?, monto = ?, fecha_pago = ?, estado = ?, id_venta = ? WHERE id_pago = ?', $params);
                 flash('ok', 'Pago actualizado.');
             }
 
-            // Actualizar estado de la venta según los pagos aprobados
             sincronizar_estado_venta($datos['id_venta']);
             if ($anterior && (int)$anterior['id_venta'] !== (int)$datos['id_venta']) {
-                sincronizar_estado_venta($anterior['id_venta']);
+                sincronizar_estado_venta($anterior['id_venta']); // el pago se movió de venta
             }
-
             redirigir(destino($volver, $datos['id_venta']));
         } catch (PDOException $e) {
             $errores[] = mensaje_error_bd($e);
         }
     }
-
     $accion = 'formulario';
 }
-
-/* ============================================================================
- * 2. PREPARACIÓN Y RENDERIZADO DE VISTAS
- * ============================================================================ */
 
 if ($accion === 'editar') {
-    $datos = fila('SELECT * FROM forma_pago WHERE id_pago = ?', array((int)get('id')));
-    if (!$datos) {
-        flash('error', 'El pago no existe.');
-        redirigir('pagos.php');
-    }
+    $datos  = buscar_o_volver('SELECT * FROM forma_pago WHERE id_pago = ?', (int)get('id'), 'El pago no existe.', 'pagos.php');
     $accion = 'formulario';
 }
-
 if ($accion === 'nuevo') {
     $accion = 'formulario';
 }
@@ -195,22 +136,23 @@ $titulo = 'Pagos';
 $activo = 'pagos.php';
 include 'includes/encabezado.php';
 
+// ---------- Formulario de registrar / editar ----------
 if ($accion === 'formulario'):
+    // Ventas que se pueden elegir: las que aceptan pagos, más la del pago que se edita.
+    // Si esa venta ya está cerrada (Enviada, Entregada o Cancelada), el pago solo se puede ver.
     $ventas        = array();
     $venta_cerrada = false;
-
     foreach (filas(sql_ventas() . ' ORDER BY v.id_venta DESC') as $v) {
-        $abierta = in_array($v['estado'], $VENTA_ACEPTA_PAGOS, true);
+        $abierta     = in_array($v['estado'], $VENTA_ACEPTA_PAGOS, true);
+        $es_la_suya  = (string)$v['id_venta'] === (string)$datos['id_venta'];
 
-        if ((string)$v['id_venta'] === (string)$datos['id_venta'] && !$abierta && $datos['id_pago'] !== '') {
+        if ($es_la_suya && !$abierta && $datos['id_pago'] !== '') {
             $venta_cerrada = $v;
         }
-        if (!$abierta && (string)$v['id_venta'] !== (string)$datos['id_venta']) {
-            continue;
+        if ($abierta || $es_la_suya) {
+            $ventas[$v['id_venta']] = '#' . $v['id_venta'] . ' — ' . $v['cliente'] . ' — ' . fecha($v['fecha'])
+                                    . ' — total ' . dinero($v['total']) . ', saldo ' . dinero($v['total'] - $v['pagado']);
         }
-
-        $ventas[$v['id_venta']] = '#' . $v['id_venta'] . ' — ' . $v['cliente'] . ' — ' . fecha($v['fecha'])
-                                . ' — total ' . dinero($v['total']) . ', saldo ' . dinero($v['total'] - $v['pagado']);
     }
 ?>
     <div class="encabezado">
@@ -227,7 +169,6 @@ if ($accion === 'formulario'):
 
     <form method="post" class="tarjeta formulario">
         <?= csrf_campo() ?>
-        <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_pago" value="<?= h($datos['id_pago']) ?>">
         <input type="hidden" name="volver" value="<?= h($volver) ?>">
 
@@ -241,9 +182,7 @@ if ($accion === 'formulario'):
 
         <div>
             <label for="tipo">Medio de pago</label>
-            <select id="tipo" name="tipo">
-                <?= opciones_simples($TIPOS_PAGO, $datos['tipo']) ?>
-            </select>
+            <select id="tipo" name="tipo"><?= opciones_simples($TIPOS_PAGO, $datos['tipo']) ?></select>
         </div>
 
         <div>
@@ -259,37 +198,28 @@ if ($accion === 'formulario'):
 
         <div>
             <label for="estado">Estado de la transacción</label>
-            <select id="estado" name="estado">
-                <?= opciones_simples($ESTADOS_PAGO, $datos['estado']) ?>
-            </select>
+            <select id="estado" name="estado"><?= opciones_simples($ESTADOS_PAGO, $datos['estado']) ?></select>
         </div>
 
         <div class="completo botones">
             <?php if (!$venta_cerrada): ?>
                 <button class="boton">Guardar</button>
             <?php endif; ?>
-            <a class="boton secundario" href="<?= h(destino($volver, $datos['id_venta'])) ?>">
-                <?= $venta_cerrada ? 'Volver' : 'Cancelar' ?>
-            </a>
+            <a class="boton secundario" href="<?= h(destino($volver, $datos['id_venta'])) ?>"><?= $venta_cerrada ? 'Volver' : 'Cancelar' ?></a>
         </div>
     </form>
 
     <?php if ($datos['id_pago'] !== '' && !$venta_cerrada): ?>
-        <form method="post" onsubmit="return confirm(<?= js('¿Eliminar el pago #' . $datos['id_pago'] . '?') ?>)">
-            <?= csrf_campo() ?>
-            <input type="hidden" name="accion" value="eliminar">
-            <input type="hidden" name="id_pago" value="<?= h($datos['id_pago']) ?>">
-            <input type="hidden" name="volver" value="<?= h($volver) ?>">
-            <button class="boton peligro">Eliminar pago</button>
-        </form>
+        <?= boton_post(array('accion' => 'eliminar', 'id_pago' => $datos['id_pago'], 'volver' => $volver),
+                       '¿Eliminar el pago #' . $datos['id_pago'] . '?', 'Eliminar pago', 'boton peligro') ?>
     <?php endif; ?>
 
 <?php else:
-    $tipo        = get('tipo');
-    $estado      = get('estado');
+    // ---------- Lista con filtros por medio y estado ----------
+    $tipo   = get('tipo');
+    $estado = get('estado');
     $condiciones = array();
     $params      = array();
-
     if ($tipo !== '') {
         $condiciones[] = 'p.tipo = ?';
         $params[]      = $tipo;
@@ -300,7 +230,7 @@ if ($accion === 'formulario'):
     }
 
     $lista = filas(
-        "SELECT p.*, c.nombre || ' ' || c.apellido AS cliente, v.fecha AS fecha_venta
+        "SELECT p.*, c.nombre || ' ' || c.apellido AS cliente
          FROM forma_pago p
          JOIN venta v ON v.id_venta = p.id_venta
          JOIN cliente c ON c.id_cliente = v.id_cliente"
@@ -308,11 +238,7 @@ if ($accion === 'formulario'):
         . ' ORDER BY p.fecha_pago DESC, p.id_pago DESC',
         $params
     );
-
-    $suma = 0;
-    foreach ($lista as $p) {
-        $suma += $p['monto'];
-    }
+    $suma = array_sum(array_column($lista, 'monto'));
 ?>
     <div class="encabezado">
         <div>
@@ -359,16 +285,12 @@ if ($accion === 'formulario'):
                             <td><?= h($p['tipo']) ?></td>
                             <td><?= etiqueta_estado($p['estado']) ?></td>
                             <td class="num"><?= dinero($p['monto']) ?></td>
-                            <td class="acciones">
-                                <a class="boton secundario chico" href="pagos.php?accion=editar&id=<?= $p['id_pago'] ?>">Editar</a>
-                            </td>
+                            <td class="acciones"><a class="boton secundario chico" href="pagos.php?accion=editar&id=<?= $p['id_pago'] ?>">Editar</a></td>
                         </tr>
                     <?php endforeach; ?>
 
                     <?php if (!$lista): ?>
-                        <tr>
-                            <td colspan="8" class="vacio">No hay pagos que coincidan.</td>
-                        </tr>
+                        <tr><td colspan="8" class="vacio">No hay pagos que coincidan.</td></tr>
                     <?php endif; ?>
                 </tbody>
                 <?php if ($lista): ?>

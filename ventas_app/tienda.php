@@ -1,4 +1,8 @@
 <?php
+/**
+ * Catálogo de la tienda: artículos con stock, con búsqueda y filtro por categoría.
+ * "Agregar al carrito" envía a carrito.php, que regresa aquí con la ventanita "¿Quieres ir al carrito?".
+ */
 
 require_once 'includes/funciones.php';
 require_cliente();
@@ -6,37 +10,24 @@ require_cliente();
 $q   = get('q');
 $cat = get('categoria');
 
-$categorias = array();
-foreach (filas('SELECT id_categoria, nombre FROM categoria ORDER BY nombre') as $c) {
-    $categorias[$c['id_categoria']] = $c['nombre'];
-}
-
-$sql = 'SELECT
-            a.id_articulo,
-            a.nombre,
-            a.descripcion,
-            a.precio,
-            a.stock,
-            a.id_categoria,
-            c.nombre AS categoria,
-            ai.actualizada AS imagen_version
+$sql = "SELECT a.id_articulo, a.nombre, a.descripcion, a.precio, a.stock,
+               c.nombre AS categoria, ai.actualizada AS imagen_version
         FROM articulo a
         JOIN categoria c ON c.id_categoria = a.id_categoria
         LEFT JOIN articulo_imagen ai ON ai.id_articulo = a.id_articulo
         WHERE a.stock > 0
-          AND (a.nombre ILIKE ? OR COALESCE(a.descripcion, \'\') ILIKE ?)';
-
+          AND (a.nombre ILIKE ? OR COALESCE(a.descripcion, '') ILIKE ?)";
 $params = array("%$q%", "%$q%");
-
 if ($cat !== '') {
     $sql .= ' AND a.id_categoria = ?';
     $params[] = (int)$cat;
 }
+$articulos  = filas($sql . ' ORDER BY a.nombre', $params);
+$categorias = lista_categorias();
 
-$articulos = filas($sql . ' ORDER BY a.nombre', $params);
-
-$filtros_actuales = array_filter(array('q' => $q, 'categoria' => $cat), 'strlen');
-$volver = 'tienda.php' . ($filtros_actuales ? '?' . http_build_query($filtros_actuales) : '');
+// Dirección de esta misma página con sus filtros, para volver aquí después de agregar
+$filtros = array_filter(array('q' => $q, 'categoria' => $cat), 'strlen');
+$volver  = 'tienda.php' . ($filtros ? '?' . http_build_query($filtros) : '');
 
 $titulo = 'Tienda';
 $activo = 'tienda.php';
