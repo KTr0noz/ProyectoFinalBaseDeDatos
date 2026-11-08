@@ -13,9 +13,11 @@ $articulo = fila(
          a.precio,
          a.stock,
          a.id_categoria,
-         c.nombre AS categoria
+         c.nombre AS categoria,
+         ai.actualizada AS imagen_version
      FROM articulo a
      JOIN categoria c ON c.id_categoria = a.id_categoria
+     LEFT JOIN articulo_imagen ai ON ai.id_articulo = a.id_articulo
      WHERE a.id_articulo = ?',
     array($id)
 );
@@ -40,6 +42,10 @@ include 'includes/encabezado_tienda.php';
 </div>
 
 <section class="ficha-articulo">
+    <div class="ficha-articulo-foto">
+        <?= imagen_articulo($articulo['id_articulo'], $articulo['imagen_version'], $articulo['nombre']) ?>
+    </div>
+
     <div class="ficha-articulo-info">
         <div class="etq"><?= h($articulo['categoria']) ?></div>
 

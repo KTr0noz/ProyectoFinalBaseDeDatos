@@ -10,6 +10,8 @@
  *     - Restricciones en PostgreSQL: `precio > 0` (`ck_articulo_precio`),
  *       `stock >= 0` (`ck_articulo_stock`) y protección contra borrado de
  *       artículos ya facturados (`fk_detalle_articulo ON DELETE RESTRICT`).
+ *     - Imagen opcional del artículo (tabla `articulo_imagen`, JPG/PNG/WEBP,
+ *       máximo 2 MB). Se borra sola con el artículo (ON DELETE CASCADE).
  * ============================================================================
  */
 
@@ -67,6 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errores[] = 'Seleccione una categoría.';
     }
 
+    $imagen        = leer_imagen_subida('imagen', $errores);
+    $quitar_imagen = post('quitar_imagen') === '1';
+
     if (!$errores) {
         $descripcion = $datos['descripcion'] === '' ? null : $datos['descripcion'];
         $params = array(
@@ -77,26 +82,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             (int)$datos['id_categoria'],
         );
 
+        // Artículo e imagen se guardan juntos: si falla la imagen, no queda el artículo a medias.
+        db()->beginTransaction();
         try {
             if ($datos['id_articulo'] === '') {
-                consulta(
+                $id_guardado = (int)valor(
                     'INSERT INTO articulo (nombre, descripcion, precio, stock, id_categoria)
-                     VALUES (?, ?, ?, ?, ?)',
+                     VALUES (?, ?, ?, ?, ?)
+                     RETURNING id_articulo',
                     $params
                 );
-                flash('ok', 'Artículo registrado.');
+                $mensaje = 'Artículo registrado.';
             } else {
-                $params[] = (int)$datos['id_articulo'];
+                $id_guardado = (int)$datos['id_articulo'];
+                $params[] = $id_guardado;
                 consulta(
                     'UPDATE articulo
                      SET nombre = ?, descripcion = ?, precio = ?, stock = ?, id_categoria = ?
                      WHERE id_articulo = ?',
                     $params
                 );
-                flash('ok', 'Artículo actualizado.');
+                $mensaje = 'Artículo actualizado.';
             }
+
+            if ($imagen) {
+                guardar_imagen_articulo($id_guardado, $imagen);
+            } elseif ($quitar_imagen) {
+                consulta('DELETE FROM articulo_imagen WHERE id_articulo = ?', array($id_guardado));
+            }
+
+            db()->commit();
+            flash('ok', $mensaje);
             redirigir('articulos.php');
         } catch (PDOException $e) {
+            db()->rollBack();
             $errores[] = mensaje_error_bd($e);
         }
     }
@@ -115,6 +134,16 @@ if ($accion === 'editar') {
         redirigir('articulos.php');
     }
     $accion = 'formulario';
+}
+
+// Fecha de la imagen actual (null si no tiene) para mostrarla en el formulario.
+$version_imagen = null;
+if ($accion === 'formulario' && $datos['id_articulo'] !== '') {
+    $version_imagen = valor(
+        'SELECT actualizada FROM articulo_imagen WHERE id_articulo = ?',
+        array((int)$datos['id_articulo'])
+    );
+    $version_imagen = $version_imagen === false ? null : $version_imagen;
 }
 
 if ($accion === 'nuevo') {
@@ -143,7 +172,7 @@ if ($accion === 'formulario'): ?>
         </div>
     <?php endif; ?>
 
-    <form method="post" class="tarjeta formulario">
+    <form method="post" class="tarjeta formulario" enctype="multipart/form-data">
         <?= csrf_campo() ?>
         <input type="hidden" name="accion" value="guardar">
         <input type="hidden" name="id_articulo" value="<?= h($datos['id_articulo']) ?>">
@@ -178,6 +207,22 @@ if ($accion === 'formulario'): ?>
             </select>
         </div>
 
+        <div class="completo">
+            <label for="imagen">Imagen (opcional)</label>
+            <div class="campo-imagen">
+                <?= imagen_articulo($datos['id_articulo'], $version_imagen, $datos['nombre'], 'imagen-articulo imagen-formulario') ?>
+                <div>
+                    <input id="imagen" name="imagen" type="file" accept="image/jpeg,image/png,image/webp">
+                    <div class="ayuda">JPG, PNG o WEBP de máximo 2 MB. <?= $version_imagen ? 'Si eliges otra, reemplaza la actual.' : '' ?></div>
+                    <?php if ($version_imagen): ?>
+                        <label class="casilla">
+                            <input type="checkbox" name="quitar_imagen" value="1"> Quitar la imagen actual
+                        </label>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
         <div class="completo botones">
             <button class="boton">Guardar</button>
             <a class="boton secundario" href="articulos.php">Cancelar</a>
@@ -191,11 +236,13 @@ if ($accion === 'formulario'): ?>
     $sql = 'SELECT
                 a.*,
                 c.nombre AS categoria,
+                ai.actualizada AS imagen_version,
                 (SELECT COALESCE(SUM(cantidad), 0)
                  FROM detalle_venta d
                  WHERE d.id_articulo = a.id_articulo) AS vendidos
             FROM articulo a
             JOIN categoria c ON c.id_categoria = a.id_categoria
+            LEFT JOIN articulo_imagen ai ON ai.id_articulo = a.id_articulo
             WHERE (a.nombre ILIKE ? OR a.descripcion ILIKE ?)';
 
     $params = array("%$q%", "%$q%");
@@ -243,8 +290,13 @@ if ($accion === 'formulario'): ?>
                         <tr>
                             <td><?= $a['id_articulo'] ?></td>
                             <td>
-                                <?= h($a['nombre']) ?>
-                                <div class="ayuda"><?= h($a['descripcion']) ?></div>
+                                <div class="celda-articulo">
+                                    <?= imagen_articulo($a['id_articulo'], $a['imagen_version'], $a['nombre'], 'imagen-articulo imagen-mini') ?>
+                                    <div>
+                                        <?= h($a['nombre']) ?>
+                                        <div class="ayuda"><?= h($a['descripcion']) ?></div>
+                                    </div>
+                                </div>
                             </td>
                             <td><?= h($a['categoria']) ?></td>
                             <td class="num"><?= dinero($a['precio']) ?></td>

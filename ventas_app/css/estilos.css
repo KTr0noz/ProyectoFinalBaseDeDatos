@@ -1209,7 +1209,7 @@ td.fecha {
 
 .ficha-articulo {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+    grid-template-columns: minmax(200px, 1fr) minmax(0, 1.4fr) minmax(240px, 1fr);
     gap: var(--e8);
     border: 1px solid var(--linea);
     border-radius: var(--r-md);
@@ -1312,3 +1312,156 @@ td.fecha {
     }
 }
 
+
+/* ============================================================================
+ * 16. Tienda: ventanita "¿Quieres ir al carrito?" y confirmación de vaciar
+ * ============================================================================ */
+.aviso-carrito {
+    position: fixed;
+    right: var(--e4);
+    bottom: var(--e4);
+    z-index: 50;
+    width: min(300px, calc(100vw - var(--e8)));
+    padding: var(--e4);
+    padding-right: var(--e8);
+    background: var(--superficie);
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    box-shadow: 0 8px 24px rgba(22, 24, 28, 0.16);
+    animation: aviso-entra var(--t-aviso) var(--curva) both;
+    transition: opacity var(--t-aviso) var(--curva);
+}
+.aviso-carrito-saliendo {
+    opacity: 0;
+}
+.aviso-carrito-titulo {
+    margin: 0 0 var(--e1);
+    font-weight: 600;
+}
+.aviso-carrito-texto {
+    margin: 0 0 var(--e3);
+    font-size: var(--f-etiqueta);
+    color: var(--suave);
+}
+.aviso-carrito-cerrar {
+    position: absolute;
+    top: var(--e2);
+    right: var(--e2);
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--suave);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+.aviso-carrito-cerrar:hover {
+    background: var(--fondo);
+    color: var(--tinta);
+}
+
+.dialogo-confirmar {
+    width: min(340px, calc(100vw - var(--e8)));
+    padding: var(--e6);
+    border: 1px solid var(--linea);
+    border-radius: var(--r-md);
+    background: var(--superficie);
+    color: var(--tinta);
+    box-shadow: 0 12px 32px rgba(22, 24, 28, 0.2);
+}
+.dialogo-confirmar::backdrop {
+    background: rgba(22, 24, 28, 0.4);
+}
+.dialogo-confirmar p {
+    margin: 0 0 var(--e4);
+    font-weight: 600;
+}
+.dialogo-botones {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--e2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .aviso-carrito {
+        animation-name: aviso-fundido;
+        transition: none;
+    }
+}
+
+/* ============================================================================
+ * 17. Imágenes de artículos
+ * ============================================================================ */
+.imagen-articulo {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: contain;
+    background: var(--fondo);
+    border-radius: var(--r-sm);
+}
+.sin-imagen {
+    display: grid;
+    place-items: center;
+    color: var(--linea-fuerte);
+    font-size: 40px;
+    font-weight: 600;
+}
+.tarjeta-articulo-foto {
+    display: block;
+    text-decoration: none;
+    margin: calc(var(--e6) * -1) calc(var(--e6) * -1) 0;
+    padding: var(--e3);
+    border-bottom: 1px solid var(--linea);
+}
+.ficha-articulo-foto {
+    width: 100%;
+    max-width: 360px;
+}
+.ficha-articulo-foto .imagen-articulo {
+    aspect-ratio: 1 / 1;
+    border: 1px solid var(--linea);
+}
+.imagen-mini {
+    width: 48px;
+    min-width: 48px;
+    aspect-ratio: 1 / 1;
+    border: 1px solid var(--linea);
+}
+.imagen-mini.sin-imagen {
+    font-size: 18px;
+}
+.celda-articulo {
+    display: flex;
+    align-items: center;
+    gap: var(--e3);
+}
+.campo-imagen {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--e4);
+}
+.imagen-formulario {
+    width: 120px;
+    min-width: 120px;
+    border: 1px solid var(--linea);
+}
+.campo-imagen input[type="file"] {
+    width: auto;
+    border: 0;
+    padding: 0;
+    min-height: 0;
+}
+.casilla {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    margin-top: var(--e3);
+    font-weight: 400;
+}
+.casilla input {
+    width: auto;
+    min-height: 0;
+}

@@ -18,9 +18,11 @@ $sql = 'SELECT
             a.precio,
             a.stock,
             a.id_categoria,
-            c.nombre AS categoria
+            c.nombre AS categoria,
+            ai.actualizada AS imagen_version
         FROM articulo a
         JOIN categoria c ON c.id_categoria = a.id_categoria
+        LEFT JOIN articulo_imagen ai ON ai.id_articulo = a.id_articulo
         WHERE a.stock > 0
           AND (a.nombre ILIKE ? OR COALESCE(a.descripcion, \'\') ILIKE ?)';
 
@@ -64,6 +66,9 @@ include 'includes/encabezado_tienda.php';
     <div class="grilla-tienda">
         <?php foreach ($articulos as $a): ?>
             <article class="tarjeta-articulo">
+                <a class="tarjeta-articulo-foto" href="articulo.php?id=<?= $a['id_articulo'] ?>" tabindex="-1">
+                    <?= imagen_articulo($a['id_articulo'], $a['imagen_version'], $a['nombre']) ?>
+                </a>
                 <div class="tarjeta-articulo-cuerpo">
                     <div class="etq"><?= h($a['categoria']) ?></div>
                     <h2 class="tarjeta-articulo-titulo">

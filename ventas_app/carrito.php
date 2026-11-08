@@ -61,7 +61,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirigir('carrito.php');
         }
 
-        flash('ok', $art['nombre'] . ' agregado al carrito.');
+        // La página de origen muestra la ventanita "¿Quieres ir al carrito?" (encabezado_tienda.php).
+        $_SESSION['aviso_carrito'] = $art['nombre'];
         redirigir($volver);
     }
 
@@ -184,9 +185,11 @@ $total_carrito  = 0.0;
 
 foreach ($_SESSION['carrito'] as $id_art => $cant) {
     $art = fila(
-        'SELECT a.id_articulo, a.nombre, a.precio, a.stock, c.nombre AS categoria
+        'SELECT a.id_articulo, a.nombre, a.precio, a.stock, c.nombre AS categoria,
+                ai.actualizada AS imagen_version
          FROM articulo a
          JOIN categoria c ON c.id_categoria = a.id_categoria
+         LEFT JOIN articulo_imagen ai ON ai.id_articulo = a.id_articulo
          WHERE a.id_articulo = ?',
         array((int)$id_art)
     );
@@ -203,6 +206,7 @@ foreach ($_SESSION['carrito'] as $id_art => $cant) {
         'id_articulo' => (int)$art['id_articulo'],
         'nombre'      => $art['nombre'],
         'categoria'   => $art['categoria'],
+        'imagen'      => $art['imagen_version'],
         'precio'      => (float)$art['precio'],
         'stock'       => (int)$art['stock'],
         'cantidad'    => (int)$cant,
@@ -221,11 +225,21 @@ include 'includes/encabezado_tienda.php';
         <p class="subtitulo">Revisa las unidades y confirma tu pedido.</p>
     </div>
     <?php if ($lineas_carrito): ?>
-        <form method="post">
-            <?= csrf_campo() ?>
-            <input type="hidden" name="accion" value="vaciar">
-            <button class="boton secundario chico">Vaciar carrito</button>
-        </form>
+        <button type="button" class="boton secundario chico" data-abrir-dialogo="dialogo-vaciar">Vaciar carrito</button>
+
+        <dialog class="dialogo-confirmar" id="dialogo-vaciar" aria-labelledby="dialogo-vaciar-titulo">
+            <p id="dialogo-vaciar-titulo">¿Estás seguro que quieres vaciar el carrito?</p>
+            <div class="dialogo-botones">
+                <form method="dialog">
+                    <button class="boton secundario">No</button>
+                </form>
+                <form method="post" action="carrito.php">
+                    <?= csrf_campo() ?>
+                    <input type="hidden" name="accion" value="vaciar">
+                    <button class="boton peligro">Sí, vaciar</button>
+                </form>
+            </div>
+        </dialog>
     <?php endif; ?>
 </div>
 
@@ -250,6 +264,9 @@ include 'includes/encabezado_tienda.php';
                         <?php foreach ($lineas_carrito as $l): ?>
                             <tr>
                                 <td>
+                                    <div class="celda-articulo">
+                                    <?= imagen_articulo($l['id_articulo'], $l['imagen'], $l['nombre'], 'imagen-articulo imagen-mini') ?>
+                                    <div>
                                     <a href="articulo.php?id=<?= $l['id_articulo'] ?>"><?= h($l['nombre']) ?></a>
                                     <div class="ayuda">
                                         <?= h($l['categoria']) ?> ·
@@ -258,6 +275,8 @@ include 'includes/encabezado_tienda.php';
                                         <?php else: ?>
                                             stock <?= $l['stock'] ?>
                                         <?php endif; ?>
+                                    </div>
+                                    </div>
                                     </div>
                                 </td>
                                 <td class="num"><?= dinero($l['precio']) ?></td>

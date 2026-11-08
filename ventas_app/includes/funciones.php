@@ -322,6 +322,8 @@ function mensaje_error_bd(PDOException $e)
         'ck_forma_pago_estado'       => 'El estado del pago no es válido.',
         'ck_cliente_rol'             => 'El rol del cliente no es válido.',
         'ck_cliente_admin_con_clave' => 'Una cuenta de administrador debe tener contraseña.',
+        'ck_articulo_imagen_tipo'    => 'La imagen debe ser JPG, PNG o WEBP.',
+        'ck_articulo_imagen_tamano'  => 'La imagen no puede pesar más de 2 MB.',
     );
 
     // Mensajes específicos cuando ON DELETE RESTRICT impide borrar un registro en uso
@@ -457,4 +459,81 @@ function sql_ventas()
                 WHERE estado = 'Aprobado'
                 GROUP BY id_venta
             ) p ON p.id_venta = v.id_venta";
+}
+
+/* ============================================================================
+ * IMÁGENES DE ARTÍCULOS (tabla articulo_imagen)
+ * ============================================================================ */
+
+define('IMAGEN_MAX_BYTES', 2 * 1024 * 1024);
+
+/**
+ * Revisa el archivo subido en $_FILES[$campo].
+ * Devuelve array('tipo' => mime, 'datos' => bytes), null si no se subió nada,
+ * o agrega el problema a $errores y devuelve null.
+ */
+function leer_imagen_subida($campo, &$errores)
+{
+    if (empty($_FILES[$campo]) || $_FILES[$campo]['error'] === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+
+    $archivo = $_FILES[$campo];
+
+    if ($archivo['error'] === UPLOAD_ERR_INI_SIZE || $archivo['error'] === UPLOAD_ERR_FORM_SIZE
+        || $archivo['size'] > IMAGEN_MAX_BYTES) {
+        $errores[] = 'La imagen no puede pesar más de 2 MB.';
+        return null;
+    }
+
+    if ($archivo['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($archivo['tmp_name'])) {
+        $errores[] = 'No se pudo subir la imagen. Intente de nuevo.';
+        return null;
+    }
+
+    // getimagesize lee el contenido real del archivo, no solo su extensión.
+    $info = @getimagesize($archivo['tmp_name']);
+    $permitidos = array('image/jpeg', 'image/png', 'image/webp');
+    if (!$info || !in_array($info['mime'], $permitidos, true)) {
+        $errores[] = 'La imagen debe ser JPG, PNG o WEBP.';
+        return null;
+    }
+
+    return array(
+        'tipo'  => $info['mime'],
+        'datos' => file_get_contents($archivo['tmp_name']),
+    );
+}
+
+/**
+ * Crea o reemplaza la imagen de un artículo.
+ * BYTEA necesita PDO::PARAM_LOB para enviar los bytes sin alterarlos.
+ */
+function guardar_imagen_articulo($id_articulo, $imagen)
+{
+    $sentencia = db()->prepare(
+        'INSERT INTO articulo_imagen (id_articulo, tipo, datos)
+         VALUES (:id, :tipo, :datos)
+         ON CONFLICT (id_articulo) DO UPDATE
+         SET tipo = EXCLUDED.tipo, datos = EXCLUDED.datos, actualizada = CURRENT_TIMESTAMP'
+    );
+    $sentencia->bindValue(':id', (int)$id_articulo, PDO::PARAM_INT);
+    $sentencia->bindValue(':tipo', $imagen['tipo']);
+    $sentencia->bindValue(':datos', $imagen['datos'], PDO::PARAM_LOB);
+    $sentencia->execute();
+}
+
+/**
+ * Pinta la imagen del artículo, o un recuadro con la inicial si no tiene.
+ * $version es articulo_imagen.actualizada: cambia la URL cuando se reemplaza la foto.
+ */
+function imagen_articulo($id_articulo, $version, $nombre, $clase = 'imagen-articulo')
+{
+    if ($version === null || $version === '') {
+        $inicial = mb_strtoupper(mb_substr(trim((string)$nombre), 0, 1, 'UTF-8'), 'UTF-8');
+        return '<div class="' . h($clase) . ' sin-imagen" aria-hidden="true"><span>' . h($inicial) . '</span></div>';
+    }
+
+    $url = 'imagen.php?id=' . (int)$id_articulo . '&v=' . rawurlencode(strtotime($version));
+    return '<img class="' . h($clase) . '" src="' . h($url) . '" alt="' . h($nombre) . '" loading="lazy">';
 }
