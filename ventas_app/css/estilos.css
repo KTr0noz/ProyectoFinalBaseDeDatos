@@ -1399,10 +1399,12 @@ td.fecha {
     width: 100%;
     aspect-ratio: 4 / 3;
     object-fit: contain;
-    background: var(--fondo);
+    /* Blanco como el fondo de las fotos de producto: así no se ven franjas a los lados. */
+    background: var(--superficie);
     border-radius: var(--r-sm);
 }
 .sin-imagen {
+    background: var(--fondo);
     display: grid;
     place-items: center;
     color: var(--linea-fuerte);
